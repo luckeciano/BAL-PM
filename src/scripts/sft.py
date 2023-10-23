@@ -46,7 +46,7 @@ class ScriptArguments:
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "the lr scheduler type"})
     num_warmup_steps: Optional[int] = field(default=100, metadata={"help": "the number of warmup steps"})
     weight_decay: Optional[float] = field(default=0.05, metadata={"help": "the weight decay"})
-    optimizer_type: Optional[str] = field(default="adamw_hf", metadata={"help": "the optimizer type"})
+    optimizer_type: Optional[str] = field(default="adamw_pytorch", metadata={"help": "the optimizer type"})
 
     output_dir: Optional[str] = field(default="./results", metadata={"help": "the output directory"})
     log_freq: Optional[int] = field(default=1, metadata={"help": "the logging frequency"})
@@ -97,7 +97,7 @@ def create_datasets(tokenizer, args):
     dataset = load_dataset(
         args.dataset_name,
         split=args.split,
-        use_auth_token=True,
+        #use_auth_token=True,
         num_proc=args.num_workers if not args.streaming else None,
         streaming=args.streaming,
     )
