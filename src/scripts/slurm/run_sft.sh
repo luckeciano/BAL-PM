@@ -12,4 +12,4 @@ source /scratch-ssd/oatml/miniconda3/bin/activate uqrm
 
 srun python ~/UQLRM/src/scripts/sft.py \
 --per_device_train_batch_size 64 \
---per_device_test_batch_size 64 
+--per_device_eval_batch_size 64 
