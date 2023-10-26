@@ -28,13 +28,13 @@ class ScriptArguments:
     size_valid_set: Optional[int] = field(default=4000, metadata={"help": "the size of the validation set"})
     shuffle_buffer: Optional[int] = field(default=5000, metadata={"help": "the shuffle buffer size"})
     seq_length: Optional[int] = field(default=1024, metadata={"help": "the sequence length"})
-    num_workers: Optional[int] = field(default=4, metadata={"help": "the number of workers"})
+    num_workers: Optional[int] = field(default=24, metadata={"help": "the number of workers"})
 
-    max_steps: Optional[int] = field(default=500, metadata={"help": "the maximum number of sgd steps"})
-    logging_steps: Optional[int] = field(default=10, metadata={"help": "the logging frequency"})
-    eval_steps: Optional[int] = field(default=10, metadata={"help": "frequency of validation eval"})
+    num_train_epochs: Optional[int] = field(default=1, metadata={"help": "number of epochs"})
+    logging_steps: Optional[int] = field(default=100, metadata={"help": "the logging frequency"})
+    eval_steps: Optional[int] = field(default=1000, metadata={"help": "frequency of validation eval"})
     eval_strategy: Optional[str] = field(default="steps", metadata={"help": "evaluation strategy"})
-    save_steps: Optional[int] = field(default=10, metadata={"help": "the saving frequency"})
+    save_steps: Optional[int] = field(default=5000, metadata={"help": "the saving frequency"})
     per_device_train_batch_size: Optional[int] = field(default=4, metadata={"help": "the per device train batch size"})
     per_device_eval_batch_size: Optional[int] = field(default=1, metadata={"help": "the per device eval batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=2, metadata={"help": "the gradient accumulation steps"})
@@ -158,7 +158,7 @@ training_args = TrainingArguments(
     logging_steps=script_args.logging_steps,
     evaluation_strategy=script_args.eval_strategy,
     eval_steps=script_args.eval_steps,
-    max_steps=script_args.max_steps,
+    num_train_epochs=script_args.num_train_epochs,
     report_to=script_args.log_with,
     save_steps=script_args.save_steps,
     group_by_length=script_args.group_by_length,
