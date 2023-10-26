@@ -32,6 +32,8 @@ class ScriptArguments:
 
     max_steps: Optional[int] = field(default=500, metadata={"help": "the maximum number of sgd steps"})
     logging_steps: Optional[int] = field(default=10, metadata={"help": "the logging frequency"})
+    eval_steps: Optional[int] = field(default=10, metadata={"help": "frequency of validation eval"})
+    eval_strategy: Optional[str] = field(default="steps", metadata={"help": "evaluation strategy"})
     save_steps: Optional[int] = field(default=10, metadata={"help": "the saving frequency"})
     per_device_train_batch_size: Optional[int] = field(default=4, metadata={"help": "the per device train batch size"})
     per_device_eval_batch_size: Optional[int] = field(default=1, metadata={"help": "the per device eval batch size"})
@@ -154,6 +156,8 @@ training_args = TrainingArguments(
     per_device_eval_batch_size=script_args.per_device_eval_batch_size,
     learning_rate=script_args.learning_rate,
     logging_steps=script_args.logging_steps,
+    evaluation_strategy=script_args.eval_strategy,
+    eval_steps=script_args.eval_steps,
     max_steps=script_args.max_steps,
     report_to=script_args.log_with,
     save_steps=script_args.save_steps,
