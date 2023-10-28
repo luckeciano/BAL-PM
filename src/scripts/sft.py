@@ -168,6 +168,7 @@ training_args = TrainingArguments(
     # bf16=True,
     remove_unused_columns=False,
     run_name="sft_gpt2",
+    log_level="debug"
 )
 
 train_dataset, eval_dataset = create_datasets(tokenizer, script_args)
