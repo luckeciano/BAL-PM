@@ -18,5 +18,8 @@ dependencies:
     - tokenizers==0.14.1
     - tqdm==4.66.1
     - transformers==4.34.1
+    - peft==0.5.0
+    - bitsandbytes==0.41.1
+    - scipy==1.11.3
     - trl==0.7.2
     - wandb==0.15.12

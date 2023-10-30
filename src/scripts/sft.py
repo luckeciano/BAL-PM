@@ -3,10 +3,13 @@ from dataclasses import dataclass, field
 from typing import Optional
 from tqdm import tqdm
 
-from datasets import load_dataset
+import torch
 
+from datasets import load_dataset
+from peft import AutoPeftModelForCausalLM, LoraConfig
+from accelerate import Accelerator
 from transformers import AutoModelForCausalLM, AutoTokenizer, \
-    HfArgumentParser, TrainingArguments
+    HfArgumentParser, TrainingArguments, BitsAndBytesConfig
 
 from trl import SFTTrainer
 from trl.trainer import ConstantLengthDataset
@@ -43,6 +46,10 @@ class ScriptArguments:
     )
     group_by_length: Optional[bool] = field(default=False, metadata={"help": "whether to group by length"})
     packing: Optional[bool] = field(default=True, metadata={"help": "whether to use packing for SFTTrainer"})
+
+    peft_lora_r: Optional[int] = field(default=8, metadata={"help": "the r parameter of the LoRA adapters"})
+    peft_lora_alpha: Optional[int] = field(default=16, metadata={"help": "the alpha parameter of the LoRA adapters"})
+    peft_lora_dropout: Optional[int] = field(default=0.0, metadata={"help": "the dropout parameter of the LoRA adapters"})
 
     learning_rate: Optional[float] = field(default=1e-4, metadata={"help": "the learning rate"})
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "the lr scheduler type"})
@@ -135,10 +142,22 @@ def create_datasets(tokenizer, args):
     )
     return train_dataset, valid_dataset
 
+    # Load the model
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16,
+)
+
+device_map = {"": Accelerator().local_process_index}
+torch_dtype = torch.bfloat16
 
 base_model = AutoModelForCausalLM.from_pretrained(
     script_args.model_name,
-    # quantization_config=bnb_config,
+    quantization_config=bnb_config,
+    device_map=device_map,
+    torch_dtype=torch_dtype,
     # device_map={"": Accelerator().local_process_index},
     trust_remote_code=True,
     # use_auth_token=True,
@@ -148,7 +167,7 @@ tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, trust_remote_c
 tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "right"  # Fix weird overflow issue with fp16 training
 
-
+# Define Training Parameters
 training_args = TrainingArguments(
     output_dir=script_args.output_dir,
     per_device_train_batch_size=script_args.per_device_train_batch_size,
@@ -165,19 +184,35 @@ training_args = TrainingArguments(
     lr_scheduler_type=script_args.lr_scheduler_type,
     warmup_steps=script_args.num_warmup_steps,
     optim=script_args.optimizer_type,
-    # bf16=True,
+    bf16=True,
     remove_unused_columns=False,
-    run_name="sft_gpt2",
+    run_name="sft_gpt2_lora",
     log_level="debug"
 )
 
+# Load Dataset
 train_dataset, eval_dataset = create_datasets(tokenizer, script_args)
 
+# Define the Lora Config
+if script_args.use_peft:
+    peft_config = LoraConfig(
+        r=script_args.peft_lora_r,
+        lora_alpha=script_args.peft_lora_alpha,
+        lora_dropout=script_args.lora_dropout,
+        target_modules=["q_proj", "v_proj"],
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+else:
+    peft_config = None
+
+
+# Define the Trainer
 trainer = SFTTrainer(
     model=base_model,
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
-    # peft_config=peft_config,
+    peft_config=peft_config,
     packing=script_args.packing,
     max_seq_length=script_args.seq_length,
     tokenizer=tokenizer,
@@ -189,3 +224,13 @@ trainer.train()
 trainer.save_model(script_args.output_dir)
 output_dir = os.path.join(script_args.output_dir, "final_checkpoint")
 trainer.model.save_pretrained(output_dir)
+
+# Free memory for merging weights
+del base_model
+torch.cuda.empty_cache()
+
+model = AutoPeftModelForCausalLM.from_pretrained(output_dir, device_map="auto", torch_dtype=torch.bfloat16)
+model = model.merge_and_unload()
+
+output_merged_dir = os.path.join(script_args.training_args.output_dir, "final_merged_checkpoint")
+model.save_pretrained(output_merged_dir, safe_serialization=True)
