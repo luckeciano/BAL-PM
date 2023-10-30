@@ -8,6 +8,7 @@ dependencies:
   - python=3.9
   - pip=23.3
   - pip:  
+    - accelerate==0.23.0
     - torch==2.0.1
     - torchvision==0.15.2
     - torchaudio==2.0.2
