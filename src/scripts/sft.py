@@ -54,6 +54,7 @@ class ScriptArguments:
     peft_lora_alpha: Optional[int] = field(default=16, metadata={"help": "the alpha parameter of the LoRA adapters"})
     peft_lora_dropout: Optional[float] = field(default=0.0, metadata={"help": "the dropout parameter of the LoRA adapters"})
     peft_lora_target_modules: Optional[List[str]] = field(default=None, metadata={"help": "target modules of the LoRA adapters"})
+    quantization_scheme: Optional[str] = field(default="4bit", metadata={"help": "quantization scheme for the LLM (8bit, 4bit, none)"})
 
     learning_rate: Optional[float] = field(default=1e-4, metadata={"help": "the learning rate"})
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "the lr scheduler type"})
@@ -147,16 +148,25 @@ def create_datasets(tokenizer, args):
     )
     return train_dataset, valid_dataset
 
-    # Load the model
-
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16,
-)
-
+# Load the model
 device_map = {"": Accelerator().local_process_index}
 torch_dtype = torch.bfloat16
+
+if script_args.quantization_scheme == "8bit":
+    bnb_config = BitsAndBytesConfig(
+        load_in_8bit=True,
+    )
+elif script_args.quantization_scheme == "4bit":
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+else:
+    print("Loading model with no quantization!")
+    device_map = None
+    bnb_config = None
+    torch_dtype = None
 
 base_model = AutoModelForCausalLM.from_pretrained(
     script_args.model_name,
@@ -203,7 +213,7 @@ if script_args.use_peft:
         r=script_args.peft_lora_r,
         lora_alpha=script_args.peft_lora_alpha,
         lora_dropout=script_args.peft_lora_dropout,
-        target_modules=["c_proj", "c_attn"],
+        target_modules=script_args.peft_lora_target_modules,
         bias="none",
         task_type="CAUSAL_LM",
     )
