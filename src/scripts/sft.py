@@ -26,15 +26,18 @@ logger = logging.get_logger(__name__)
 class ScriptArguments:
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
     log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
+    run_name: Optional[str] = field(default="SFT_default", metadata={"help": "The experiment name"})
 
     dataset_name: Optional[str] = field(default="webis/tldr-17", metadata={"help": "the dataset name"})
     split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
     streaming: Optional[bool] = field(default=False, metadata={"help": "whether to stream the dataset"})
     size_valid_set: Optional[int] = field(default=4000, metadata={"help": "the size of the validation set"})
+    test_split_size: Optional[float] = field(default=0.005, metadata={"help": "size of test split"})
     shuffle_buffer: Optional[int] = field(default=5000, metadata={"help": "the shuffle buffer size"})
     seq_length: Optional[int] = field(default=1024, metadata={"help": "the sequence length"})
     num_workers: Optional[int] = field(default=4, metadata={"help": "the number of workers"})
 
+    max_steps: Optional[int] = field(default=-1, metadata={"help": "Max gradient steps. Overrides num_train_epochs if set."})
     num_train_epochs: Optional[int] = field(default=1, metadata={"help": "number of epochs"})
     logging_steps: Optional[int] = field(default=100, metadata={"help": "the logging frequency"})
     eval_steps: Optional[int] = field(default=1000, metadata={"help": "frequency of validation eval"})
@@ -55,6 +58,7 @@ class ScriptArguments:
     peft_lora_dropout: Optional[float] = field(default=0.0, metadata={"help": "the dropout parameter of the LoRA adapters"})
     peft_lora_target_modules: Optional[List[str]] = field(default=None, metadata={"help": "target modules of the LoRA adapters"})
     quantization_scheme: Optional[str] = field(default="4bit", metadata={"help": "quantization scheme for the LLM (8bit, 4bit, none)"})
+    no_model_cache: Optional[bool] = field(default=False, metadata={"help": "Disable model cache to save VRAM"})
 
     learning_rate: Optional[float] = field(default=1e-4, metadata={"help": "the learning rate"})
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "the lr scheduler type"})
@@ -122,7 +126,7 @@ def create_datasets(tokenizer, args):
         train_data = dataset.skip(args.size_valid_set)
         train_data = train_data.shuffle(buffer_size=args.shuffle_buffer, seed=None)
     else:
-        dataset = dataset.train_test_split(test_size=0.005, seed=None)
+        dataset = dataset.train_test_split(test_size=args.test_split_size, seed=None)
         train_data = dataset["train"]
         valid_data = dataset["test"]
         print(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
@@ -177,6 +181,10 @@ base_model = AutoModelForCausalLM.from_pretrained(
     # use_auth_token=True,
 )
 
+
+if script_args.no_model_cache:
+    base_model.config.use_cache = False
+
 tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, trust_remote_code=True, truncation=True, max_length=script_args.seq_length)
 tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "right"  # Fix weird overflow issue with fp16 training
@@ -200,7 +208,7 @@ training_args = TrainingArguments(
     optim=script_args.optimizer_type,
     bf16=True,
     remove_unused_columns=False,
-    run_name="sft_gpt2_lora",
+    run_name=script_args.run_name,
     log_level="debug"
 )
 

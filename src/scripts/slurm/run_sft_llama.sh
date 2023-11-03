@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:3g.40gb:1
-#SBATCH --job-name="sft"
+#SBATCH --cpus-per-task=24
+#SBATCH --gres=gpu:a100:1
+#SBATCH --job-name="sft_llama"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
 
@@ -20,13 +20,20 @@ echo $TMPDIR
 
 nvidia-smi
 
+huggingface-cli login --token $HUGGINGFACE_TOKEN
+
 python ~/UQLRM/src/scripts/sft.py \
---per_device_train_batch_size 8 \
---per_device_eval_batch_size 8 \
---output_dir /scratch/lucelo/sft/results/gpt2_nopeft_batch8_5epochs \
---use_peft False \
+--per_device_train_batch_size 3 \
+--per_device_eval_batch_size 3 \
+--output_dir /scratch/lucelo/sft/results/llama_lora_32ksteps_noquant_batch3 \
+--max_steps 32000 \
+--model_name meta-llama/Llama-2-7b-hf \
 --quantization_scheme "none" \
---num_train_epochs 5 \
-#--peft_lora_target_modules "c_attn" \
-#--peft_lora_r 16 \
-#--peft_lora_alpha 32 \
+--peft_lora_target_modules "q_proj" "v_proj" \
+--peft_lora_r 8 \
+--peft_lora_alpha 16 \
+--peft_lora_dropout 0.05 \
+--run_name "llama-sft_lora_32ksteps_noquant" \
+--test_split_size 0.0005 \
+--no_model_cache True
+
