@@ -29,7 +29,7 @@ tqdm.pandas()
 
 @dataclass
 class ScriptArguments:
-    model_name: Optional[str] = field(default="facebook/opt-350m", metadata={"help": "the model name"})
+    model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
     log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
     run_name: Optional[str] = field(default="rwft_opt350", metadata={"help": "The experiment name"})
 
@@ -63,7 +63,7 @@ class ScriptArguments:
     peft_lora_alpha: Optional[int] = field(default=16, metadata={"help": "the alpha parameter of the LoRA adapters"})
     peft_lora_dropout: Optional[float] = field(default=0.0, metadata={"help": "the dropout parameter of the LoRA adapters"})
     peft_lora_target_modules: Optional[List[str]] = field(default=None, metadata={"help": "target modules of the LoRA adapters"})
-    quantization_scheme: Optional[str] = field(default="4bit", metadata={"help": "quantization scheme for the LLM (8bit, 4bit, none)"})
+    quantization_scheme: Optional[str] = field(default="none", metadata={"help": "quantization scheme for the LLM (8bit, 4bit, none)"})
     no_model_cache: Optional[bool] = field(default=False, metadata={"help": "Disable model cache to save VRAM"})
 
     learning_rate: Optional[float] = field(default=1.41e-5, metadata={"help": "the learning rate"})
@@ -89,7 +89,7 @@ reward_config = RewardConfig(
             remove_unused_columns=False,
             optim=script_args.optimizer_type,
             logging_steps=script_args.log_freq,
-            evaluation_strategy=script_args.evaluation_strategy,
+            evaluation_strategy=script_args.eval_strategy,
             max_length=script_args.seq_length,
             run_name=script_args.run_name,
             log_level="debug")
@@ -143,6 +143,7 @@ model = AutoModelForSequenceClassification.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, trust_remote_code=True, truncation=True, max_length=script_args.seq_length)
 tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "right"  # Fix weird overflow issue with fp16 training
+model.config.pad_token_id = model.config.eos_token_id # fix
 
 def create_datasets(args):
     dataset = load_dataset(
@@ -161,9 +162,8 @@ def create_datasets(args):
         dataset = dataset.train_test_split(test_size=args.test_split_size, seed=None)
         train_data = dataset["train"]
         valid_data = dataset["test"]
-        print(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
 
-        train_dataset = train_dataset.map(
+        train_dataset = train_data.map(
             preprocess_function,
             batched=True,
             num_proc=4,
@@ -173,15 +173,17 @@ def create_datasets(args):
             and len(x["input_ids_rejected"]) <= reward_config.max_length
         )
 
-        eval_dataset = eval_dataset.map(
+        eval_dataset = valid_data.map(
             preprocess_function,
             batched=True,
             num_proc=4,
         )
         eval_dataset = eval_dataset.filter(
-            lambda x: len(x["input_ids_chosen"]) <= args.reward_config.max_length
-            and len(x["input_ids_rejected"]) <= args.reward_config.max_length
+            lambda x: len(x["input_ids_chosen"]) <= reward_config.max_length
+            and len(x["input_ids_rejected"]) <= reward_config.max_length
         )
+
+        print(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
 
     return train_dataset, eval_dataset
 
@@ -218,6 +220,7 @@ trainer = RewardTrainer(
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
     peft_config=peft_config,
+    #bf16=True
 )
 
 trainer.train()
