@@ -99,8 +99,8 @@ use_peft: bool = script_args.use_peft
 
 if script_args.use_peft:
     peft_config = LoraConfig(
-            r=script_args.peft_lora_r,#16
-            lora_alpha=script_args.peft_lora_alpha,#16
+            r=script_args.peft_lora_r,
+            lora_alpha=script_args.peft_lora_alpha,
             target_modules=script_args.peft_lora_target_modules,
             bias="none",
             task_type="SEQ_CLS",
