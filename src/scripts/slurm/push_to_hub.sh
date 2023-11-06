@@ -21,7 +21,7 @@ nvidia-smi
 huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
 
 python3 ~/UQLRM/src/scripts/push_to_hub.py \
---checkpoint_folder ~/uqlrm/gpt2-sft \
---repo_id luckeciano/uqlrm \
+--checkpoint_folder ~/uqlrm/gpt2-sft/3epochs_85k \
+--repo_id luckeciano/gpt2-sft-reddit \
 --repo_type model
 
