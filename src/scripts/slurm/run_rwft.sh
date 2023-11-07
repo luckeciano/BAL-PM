@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --cpus-per-task=24
-#SBATCH --gres=gpu:a100:1
+#SBATCH --cpus-per-task=10
+#SBATCH --gres=gpu:titanrtx:1
 #SBATCH --job-name="reward_ft"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
@@ -20,4 +20,12 @@ echo $TMPDIR
 
 nvidia-smi
 
-python ~/UQLRM/src/scripts/reward_model_training.py 
+huggingface-cli login --token $HUGGINGFACE_TOKEN
+
+python ~/UQLRM/src/scripts/reward_model_training.py \
+--output_dir /scratch/lucelo/sft/results/gpt2_rwft_nopeft_loadcpkt_reddit_2 \
+--run_name "gpt2_rwft_nopeft_loadckpt_reddit_2" \
+--dataset_name "luckeciano/reddit-human-preferences" \
+--model_name "luckeciano/gpt2-sft-reddit" \
+--quantization_scheme "none" \
+--use_peft False

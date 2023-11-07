@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:3g.40gb:1
+#SBATCH --cpus-per-task=24
+#SBATCH --gres=gpu:a100:1
 #SBATCH --job-name="sft"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
@@ -23,7 +23,8 @@ nvidia-smi
 python ~/UQLRM/src/scripts/sft.py \
 --per_device_train_batch_size 8 \
 --per_device_eval_batch_size 8 \
---output_dir /scratch/lucelo/sft/results/gpt2_nopeft_batch8_5epochs \
+--output_dir /scratch/lucelo/sft/results/gpt2_nopeft_batch8_5epochs_a100 \
+--run_name "gpt2_nopeft_batch8_5epochs_a100" \
 --use_peft False \
 --quantization_scheme "none" \
 --num_train_epochs 5 \
