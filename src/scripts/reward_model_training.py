@@ -13,16 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 import torch
+import numpy as np
 from accelerate import Accelerator
 from datasets import load_dataset
 from peft import LoraConfig
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig, HfArgumentParser
 
-from trl import RewardConfig, RewardTrainer
+from reward_collator import RewardDataCollatorWithPaddingAndIndices
+from reward_config_with_save_predictions import RewardConfigWithSavedPredictions
+from reward_trainer import RewardTrainerWithCustomEval
 
 
 tqdm.pandas()
@@ -33,7 +36,7 @@ class ScriptArguments:
     log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
     run_name: Optional[str] = field(default="rwft_opt350", metadata={"help": "The experiment name"})
 
-    dataset_name: Optional[str] = field(default="Anthropic/hh-rlhf", metadata={"help": "the dataset name"})
+    dataset_name: Optional[str] = field(default="luckeciano/reddit-human-preferences", metadata={"help": "the dataset name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "Dataset text column name"})
     split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
     streaming: Optional[bool] = field(default=False, metadata={"help": "whether to stream the dataset"})
@@ -51,7 +54,7 @@ class ScriptArguments:
     save_steps: Optional[int] = field(default=5000, metadata={"help": "the saving frequency"})
     per_device_train_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device train batch size"})
     per_device_eval_batch_size: Optional[int] = field(default=1, metadata={"help": "the per device eval batch size"})
-    gradient_accumulation_steps: Optional[int] = field(default=16, metadata={"help": "the gradient accumulation steps"})
+    gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the gradient accumulation steps"})
     gradient_checkpointing: Optional[bool] = field(
         default=True, metadata={"help": "whether to use gradient checkpointing"}
     )
@@ -75,10 +78,12 @@ class ScriptArguments:
     output_dir: Optional[str] = field(default="./results", metadata={"help": "the output directory"})
     log_freq: Optional[int] = field(default=1, metadata={"help": "the logging frequency"})
 
+    push_predictions_to_hub: Optional[bool] = field(default=False, metadata={"help": "Enable storing predictions from test sets in hub."})
+    predictions_dataset_hub: Optional[str] = field(default=None, metadata={"help": "The datasets hub repository to save predictions."})
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
-reward_config = RewardConfig(
+reward_config = RewardConfigWithSavedPredictions(
             output_dir=script_args.output_dir,
             per_device_train_batch_size=script_args.per_device_train_batch_size,
             num_train_epochs=script_args.num_train_epochs,
@@ -92,6 +97,8 @@ reward_config = RewardConfig(
             evaluation_strategy=script_args.eval_strategy,
             max_length=script_args.seq_length,
             run_name=script_args.run_name,
+            push_predictions_to_hub=script_args.push_predictions_to_hub,
+            predictions_dataset_hub=script_args.predictions_dataset_hub,
             log_level="debug")
 
 
@@ -196,8 +203,9 @@ def preprocess_function(examples):
         "attention_mask_chosen": [],
         "input_ids_rejected": [],
         "attention_mask_rejected": [],
+        "id": []
     }
-    for chosen, rejected in zip(examples["chosen"], examples["rejected"]):
+    for chosen, rejected, id in zip(examples["chosen"], examples["rejected"], examples["id"]):
         tokenized_chosen = tokenizer(chosen)
         tokenized_rejected = tokenizer(rejected)
 
@@ -205,17 +213,31 @@ def preprocess_function(examples):
         new_examples["attention_mask_chosen"].append(tokenized_chosen["attention_mask"])
         new_examples["input_ids_rejected"].append(tokenized_rejected["input_ids"])
         new_examples["attention_mask_rejected"].append(tokenized_rejected["attention_mask"])
+        new_examples["id"].append(id)
 
     return new_examples
 
 
+def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
+    predictions, labels, inputs = eval_pred
+    # Here, predictions is rewards_chosen and rewards_rejected.
+    # We want to see how much of the time rewards_chosen > rewards_rejected.
+    predictions = np.argmax(predictions, axis=1)
+
+    accuracy = np.array(predictions == labels, dtype=float).mean().item()
+    return {"accuracy": accuracy, "ids": inputs}
+
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
 train_dataset, eval_dataset = create_datasets(script_args)
 
+# Define Reward Collator with Indices:
+reward_collator = RewardDataCollatorWithPaddingAndIndices(tokenizer, max_length=reward_config.max_length)
+
 # Define the Trainer
-trainer = RewardTrainer(
+trainer = RewardTrainerWithCustomEval(
     model=model,
     tokenizer=tokenizer,
+    data_collator=reward_collator,
     args=reward_config,
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
