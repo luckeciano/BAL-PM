@@ -36,7 +36,7 @@ class ScriptArguments:
     log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
     run_name: Optional[str] = field(default="rwft_opt350", metadata={"help": "The experiment name"})
 
-    dataset_name: Optional[str] = field(default="luckeciano/reddit-human-preferences", metadata={"help": "the dataset name"})
+    dataset_name: Optional[str] = field(default="luckeciano/learning-to-summarize", metadata={"help": "the dataset name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "Dataset text column name"})
     train_split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
     valid_split: Optional[str] = field(default="valid1", metadata={"help": "the split to use"})
@@ -164,11 +164,12 @@ def process_and_filter_dataset(dataset, reward_config):
         batched=True,
         num_proc=4,
     )
-    dataset = dataset.filter(
+    final_dataset = final_dataset.filter(
         lambda x: len(x["input_ids_chosen"]) <= reward_config.max_length
         and len(x["input_ids_rejected"]) <= reward_config.max_length
     )
     print(f"Size of the set before processing: {len(dataset)}, after processing: {len(final_dataset)}")
+    return final_dataset
 
 def create_datasets(args, ood=False):
     dataset = load_dataset(
@@ -227,7 +228,7 @@ def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
     return {"accuracy": accuracy, "ids": inputs}
 
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
-train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, odd=True)
+train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, ood=True)
 eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
 
 # Define Reward Collator with Indices:
