@@ -20,12 +20,19 @@ echo $TMPDIR
 
 nvidia-smi
 
-huggingface-cli login --token $HUGGINGFACE_TOKEN
+huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
+
+echo $1_$2
 
 python ~/UQLRM/src/scripts/reward_model_training.py \
---output_dir /scratch/lucelo/sft/results/gpt2_rwft_nopeft_loadcpkt_reddit_2 \
---run_name "gpt2_rwft_nopeft_loadckpt_reddit_2" \
+--output_dir /scratch/lucelo/sft/results/$1_$2 \
+--run_name "$1_$2" \
 --dataset_name "luckeciano/reddit-human-preferences" \
 --model_name "luckeciano/gpt2-sft-reddit" \
 --quantization_scheme "none" \
---use_peft False
+--push_predictions_to_hub True \
+--predictions_dataset_hub "luckeciano/uqlrm_predictions" \
+--use_peft False \
+--eval_steps 10 \
+--logging_steps 10 \
+--save_steps 10

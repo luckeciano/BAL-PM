@@ -21,7 +21,7 @@ from accelerate import Accelerator
 from datasets import load_dataset
 from peft import LoraConfig
 from tqdm import tqdm
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig, HfArgumentParser
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig, HfArgumentParser, TrainerCallback
 
 from reward_collator import RewardDataCollatorWithPaddingAndIndices
 from reward_config_with_save_predictions import RewardConfigWithSavedPredictions
@@ -38,7 +38,11 @@ class ScriptArguments:
 
     dataset_name: Optional[str] = field(default="luckeciano/reddit-human-preferences", metadata={"help": "the dataset name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "Dataset text column name"})
-    split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
+    train_split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
+    valid_split: Optional[str] = field(default="valid1", metadata={"help": "the split to use"})
+    test_split: Optional[str] = field(default="valid2_reddit", metadata={"help": "the split to use"})
+    ood_split: Optional[str] = field(default="valid2_cnn", metadata={"help": "the split to use"})
+    train_split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
     streaming: Optional[bool] = field(default=False, metadata={"help": "whether to stream the dataset"})
     size_valid_set: Optional[int] = field(default=4000, metadata={"help": "the size of the validation set"})
     test_split_size: Optional[float] = field(default=0.005, metadata={"help": "size of test split"})
@@ -54,7 +58,7 @@ class ScriptArguments:
     save_steps: Optional[int] = field(default=5000, metadata={"help": "the saving frequency"})
     per_device_train_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device train batch size"})
     per_device_eval_batch_size: Optional[int] = field(default=1, metadata={"help": "the per device eval batch size"})
-    gradient_accumulation_steps: Optional[int] = field(default=1, metadata={"help": "the gradient accumulation steps"})
+    gradient_accumulation_steps: Optional[int] = field(default=16, metadata={"help": "the gradient accumulation steps"})
     gradient_checkpointing: Optional[bool] = field(
         default=True, metadata={"help": "whether to use gradient checkpointing"}
     )
@@ -71,12 +75,10 @@ class ScriptArguments:
 
     learning_rate: Optional[float] = field(default=1.41e-5, metadata={"help": "the learning rate"})
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "the lr scheduler type"})
-    num_warmup_steps: Optional[int] = field(default=100, metadata={"help": "the number of warmup steps"})
-    weight_decay: Optional[float] = field(default=0.05, metadata={"help": "the weight decay"})
+    num_warmup_steps: Optional[int] = field(default=5, metadata={"help": "the number of warmup steps"})
     optimizer_type: Optional[str] = field(default="adamw_torch", metadata={"help": "the optimizer type"})
 
     output_dir: Optional[str] = field(default="./results", metadata={"help": "the output directory"})
-    log_freq: Optional[int] = field(default=1, metadata={"help": "the logging frequency"})
 
     push_predictions_to_hub: Optional[bool] = field(default=False, metadata={"help": "Enable storing predictions from test sets in hub."})
     predictions_dataset_hub: Optional[str] = field(default=None, metadata={"help": "The datasets hub repository to save predictions."})
@@ -86,15 +88,19 @@ script_args = parser.parse_args_into_dataclasses()[0]
 reward_config = RewardConfigWithSavedPredictions(
             output_dir=script_args.output_dir,
             per_device_train_batch_size=script_args.per_device_train_batch_size,
+            per_device_eval_batch_size=script_args.per_device_eval_batch_size,
             num_train_epochs=script_args.num_train_epochs,
             gradient_accumulation_steps=script_args.gradient_accumulation_steps,
             gradient_checkpointing=script_args.gradient_checkpointing,
             learning_rate=script_args.learning_rate,
             report_to=script_args.log_with,
             remove_unused_columns=False,
+            warmup_steps=script_args.num_warmup_steps,
             optim=script_args.optimizer_type,
-            logging_steps=script_args.log_freq,
+            logging_steps=script_args.logging_steps,
             evaluation_strategy=script_args.eval_strategy,
+            eval_steps=script_args.eval_steps,
+            save_steps=script_args.save_steps,
             max_length=script_args.seq_length,
             run_name=script_args.run_name,
             push_predictions_to_hub=script_args.push_predictions_to_hub,
@@ -152,47 +158,40 @@ tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "right"  # Fix weird overflow issue with fp16 training
 model.config.pad_token_id = model.config.eos_token_id # fix
 
-def create_datasets(args):
+def process_and_filter_dataset(dataset, reward_config):
+    final_dataset = dataset.map(
+        preprocess_function,
+        batched=True,
+        num_proc=4,
+    )
+    dataset = dataset.filter(
+        lambda x: len(x["input_ids_chosen"]) <= reward_config.max_length
+        and len(x["input_ids_rejected"]) <= reward_config.max_length
+    )
+    print(f"Size of the set before processing: {len(dataset)}, after processing: {len(final_dataset)}")
+
+def create_datasets(args, ood=False):
     dataset = load_dataset(
         args.dataset_name,
-        split=args.split,
         #use_auth_token=True,
-        num_proc=args.num_workers if not args.streaming else None,
-        streaming=args.streaming,
+        num_proc=args.num_workers if not args.streaming else None
     )
-    if args.streaming:
-        print("Loading the dataset in streaming mode")
-        valid_data = dataset.take(args.size_valid_set)
-        train_data = dataset.skip(args.size_valid_set)
-        train_data = train_data.shuffle(buffer_size=args.shuffle_buffer, seed=None)
-    else:
-        dataset = dataset.train_test_split(test_size=args.test_split_size, seed=None)
-        train_data = dataset["train"]
-        valid_data = dataset["test"]
 
-        train_dataset = train_data.map(
-            preprocess_function,
-            batched=True,
-            num_proc=4,
-        )
-        train_dataset = train_dataset.filter(
-            lambda x: len(x["input_ids_chosen"]) <= reward_config.max_length
-            and len(x["input_ids_rejected"]) <= reward_config.max_length
-        )
+    train_dataset = dataset[args.train_split]
+    valid_dataset = dataset[args.valid_split]
+    test_dataset = dataset[args.test_split]
 
-        eval_dataset = valid_data.map(
-            preprocess_function,
-            batched=True,
-            num_proc=4,
-        )
-        eval_dataset = eval_dataset.filter(
-            lambda x: len(x["input_ids_chosen"]) <= reward_config.max_length
-            and len(x["input_ids_rejected"]) <= reward_config.max_length
-        )
+    final_train_dataset = process_and_filter_dataset(train_dataset, reward_config)
+    final_valid_dataset = process_and_filter_dataset(valid_dataset, reward_config)
+    final_test_dataset = process_and_filter_dataset(test_dataset, reward_config)
 
-        print(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
+    if ood:
+        ood_dataset = dataset[args.ood_split]
+        final_ood_dataset = process_and_filter_dataset(ood_dataset, reward_config)
+        return final_train_dataset, final_valid_dataset, final_test_dataset, final_ood_dataset
+    
 
-    return train_dataset, eval_dataset
+    return final_train_dataset, final_valid_dataset, final_test_dataset
 
 
 # Tokenize chosen/rejected pairs of inputs
@@ -228,10 +227,17 @@ def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
     return {"accuracy": accuracy, "ids": inputs}
 
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
-train_dataset, eval_dataset = create_datasets(script_args)
+train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, odd=True)
+eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
 
 # Define Reward Collator with Indices:
 reward_collator = RewardDataCollatorWithPaddingAndIndices(tokenizer, max_length=reward_config.max_length)
+
+# Callback to evaluate models with random weights
+class EvaluateFirstStepCallback(TrainerCallback):
+    def on_step_begin(self, args, state, control, **kwargs):
+        if state.global_step == 0:
+            control.should_evaluate = True
 
 # Define the Trainer
 trainer = RewardTrainerWithCustomEval(
@@ -240,9 +246,11 @@ trainer = RewardTrainerWithCustomEval(
     data_collator=reward_collator,
     args=reward_config,
     train_dataset=train_dataset,
-    eval_dataset=eval_dataset,
+    eval_dataset=eval_sets,
     peft_config=peft_config,
     #bf16=True
 )
+
+trainer.add_callback(EvaluateFirstStepCallback())
 
 trainer.train()
