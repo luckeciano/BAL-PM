@@ -29,6 +29,7 @@ class ScriptArguments:
     run_name: Optional[str] = field(default="SFT_default", metadata={"help": "The experiment name"})
 
     dataset_name: Optional[str] = field(default="webis/tldr-17", metadata={"help": "the dataset name"})
+    dataset_text_field: Optional[str] = field(default="normalizedBody", metadata={"help": "Dataset text column name"})
     split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
     streaming: Optional[bool] = field(default=False, metadata={"help": "whether to stream the dataset"})
     size_valid_set: Optional[int] = field(default=4000, metadata={"help": "the size of the validation set"})
@@ -110,7 +111,7 @@ def print_trainable_parameters(model):
 def prepare_sample_text(example):
     """Prepare the text from a sample of the dataset."""
     # text = f"Question: {example['question']}\n\nAnswer: {example['response_j']}"
-    return example['normalizedBody']
+    return example[script_args.dataset_text_field]
 
 def create_datasets(tokenizer, args):
     dataset = load_dataset(
