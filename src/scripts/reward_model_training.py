@@ -26,6 +26,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, Bits
 from reward_collator import RewardDataCollatorWithPaddingAndIndices
 from reward_config_with_save_predictions import RewardConfigWithSavedPredictions
 from reward_trainer import RewardTrainerWithCustomEval
+import dataset_process_factory
 
 
 tqdm.pandas()
@@ -38,6 +39,7 @@ class ScriptArguments:
 
     dataset_name: Optional[str] = field(default="luckeciano/learning-to-summarize", metadata={"help": "the dataset name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "Dataset text column name"})
+    preprocess_fn: Optional[str] = field(default="redditcnn_preprocess_function", metadata={"help": "Which preprocess fn to apply"})
     train_split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
     valid_split: Optional[str] = field(default="valid1", metadata={"help": "the split to use"})
     test_split: Optional[str] = field(default="valid2_reddit", metadata={"help": "the split to use"})
@@ -159,8 +161,8 @@ tokenizer.padding_side = "right"  # Fix weird overflow issue with fp16 training
 model.config.pad_token_id = model.config.eos_token_id # fix
 
 def process_and_filter_dataset(dataset, reward_config):
-    final_dataset = dataset.map(
-        preprocess_function,
+    final_dataset = dataset.map(lambda example:
+        getattr(dataset_process_factory, script_args.preprocess_fn)(example, tokenizer, reward_config.max_length),
         batched=True,
         num_proc=4,
     )
@@ -190,33 +192,8 @@ def create_datasets(args, ood=False):
         ood_dataset = dataset[args.ood_split]
         final_ood_dataset = process_and_filter_dataset(ood_dataset, reward_config)
         return final_train_dataset, final_valid_dataset, final_test_dataset, final_ood_dataset
-    
 
     return final_train_dataset, final_valid_dataset, final_test_dataset
-
-
-# Tokenize chosen/rejected pairs of inputs
-# Adapt this section to your needs for custom datasets
-def preprocess_function(examples):
-    new_examples = {
-        "input_ids_chosen": [],
-        "attention_mask_chosen": [],
-        "input_ids_rejected": [],
-        "attention_mask_rejected": [],
-        "id": []
-    }
-    for chosen, rejected, id in zip(examples["chosen"], examples["rejected"], examples["id"]):
-        tokenized_chosen = tokenizer(chosen)
-        tokenized_rejected = tokenizer(rejected)
-
-        new_examples["input_ids_chosen"].append(tokenized_chosen["input_ids"])
-        new_examples["attention_mask_chosen"].append(tokenized_chosen["attention_mask"])
-        new_examples["input_ids_rejected"].append(tokenized_rejected["input_ids"])
-        new_examples["attention_mask_rejected"].append(tokenized_rejected["attention_mask"])
-        new_examples["id"].append(id)
-
-    return new_examples
-
 
 def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
     predictions, labels, inputs = eval_pred
