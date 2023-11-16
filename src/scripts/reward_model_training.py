@@ -19,7 +19,7 @@ import torch
 import numpy as np
 from accelerate import Accelerator
 from datasets import load_dataset
-from peft import LoraConfig
+from peft import LoraConfig, AutoPeftModelForCausalLM
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig, HfArgumentParser, TrainerCallback
 
@@ -74,6 +74,7 @@ class ScriptArguments:
     peft_lora_target_modules: Optional[List[str]] = field(default=None, metadata={"help": "target modules of the LoRA adapters"})
     quantization_scheme: Optional[str] = field(default="none", metadata={"help": "quantization scheme for the LLM (8bit, 4bit, none)"})
     no_model_cache: Optional[bool] = field(default=False, metadata={"help": "Disable model cache to save VRAM"})
+    load_peft_pretrained: Optional[bool] = field(default=False, metadata={"help": "Enable if backbone model was lora finetuned"})
 
     learning_rate: Optional[float] = field(default=1.41e-5, metadata={"help": "the learning rate"})
     lr_scheduler_type: Optional[str] = field(default="cosine", metadata={"help": "the lr scheduler type"})
@@ -144,14 +145,25 @@ else:
     bnb_config = None
     torch_dtype = None
 
-model = AutoModelForSequenceClassification.from_pretrained(
+if script_args.load_peft_pretrained:
+    model = AutoPeftModelForCausalLM.from_pretrained(
     script_args.model_name,
-    quantization_config=bnb_config,
+    # low_cpu_mem_usage=True,
     device_map=device_map,
-    trust_remote_code=True,
-    num_labels=1,
-    torch_dtype=torch_dtype
+    quantization_config=bnb_config,
+    torch_dtype=torch_dtype,
+    # load_in_4bit=True,
+    is_trainable=True,
 )
+else:
+    model = AutoModelForSequenceClassification.from_pretrained(
+        script_args.model_name,
+        quantization_config=bnb_config,
+        device_map=device_map,
+        trust_remote_code=True,
+        num_labels=1,
+        torch_dtype=torch_dtype
+    )
 
 
 # Step 2: Load the dataset and pre-process it
