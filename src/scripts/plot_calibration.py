@@ -28,7 +28,7 @@ def main(args):
     for i in ckpts:      
         for mode in ["train", "eval", "test", "ood"]:
             calibration_dict = {}
-            for alpha in np.linspace(0.55, 1.0, args.num_bins):
+            for alpha in np.linspace(0.55, 0.95, args.num_bins):
                 calibration_dict[alpha] = []
 
             for j in range(args.ensemble_size):
@@ -51,9 +51,9 @@ def main(args):
         plt.title(f"Model Calibration - Checkpoint {i}")
         x = np.linspace(0.55, 1.0, args.num_bins)
         sns.lineplot(x=x, y=x, color='black', linestyle='dashed', label="Ideal")
-        plt.savefig(f'./model_calibration_{args.experiment_name}_ckpt_{i}.svg')
-        plt.savefig(f'./model_calibration_{args.experiment_name}_ckpt_{i}.eps', format='eps')
-        plt.savefig(f'./model_calibration_{args.experiment_name}_ckpt_{i}.jpg')
+        plt.savefig(f'./images/{args.experiment_name}/model_calibration_{args.experiment_name}_ckpt_{i}.svg')
+        plt.savefig(f'./images/model_calibration_{args.experiment_name}_ckpt_{i}.eps', format='eps')
+        plt.savefig(f'./images/model_calibration_{args.experiment_name}_ckpt_{i}.jpg')
         plt.close()
 
 if __name__ == "__main__":

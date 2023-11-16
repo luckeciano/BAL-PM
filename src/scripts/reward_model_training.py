@@ -59,7 +59,7 @@ class ScriptArguments:
     eval_strategy: Optional[str] = field(default="steps", metadata={"help": "evaluation strategy"})
     save_steps: Optional[int] = field(default=5000, metadata={"help": "the saving frequency"})
     per_device_train_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device train batch size"})
-    per_device_eval_batch_size: Optional[int] = field(default=1, metadata={"help": "the per device eval batch size"})
+    per_device_eval_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device eval batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=16, metadata={"help": "the gradient accumulation steps"})
     gradient_checkpointing: Optional[bool] = field(
         default=True, metadata={"help": "whether to use gradient checkpointing"}
