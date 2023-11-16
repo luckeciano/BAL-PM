@@ -21,7 +21,7 @@ from accelerate import Accelerator
 from datasets import load_dataset
 from peft import LoraConfig, AutoPeftModelForCausalLM
 from tqdm import tqdm
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig, HfArgumentParser, TrainerCallback
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, BitsAndBytesConfig, HfArgumentParser, TrainerCallback, AutoModelForCausalLM
 
 from reward_collator import RewardDataCollatorWithPaddingAndIndices
 from reward_config_with_save_predictions import RewardConfigWithSavedPredictions
@@ -111,7 +111,8 @@ reward_config = RewardConfigWithSavedPredictions(
             log_level="debug")
 
 
-use_peft: bool = script_args.use_peft
+if script_args.load_peft_pretrained and not script_args.use_peft:
+    raise TypeError("You must use PEFT if you are loading a pretrained PEFT model.")
 
 if script_args.use_peft:
     peft_config = LoraConfig(
