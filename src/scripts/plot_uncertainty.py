@@ -10,7 +10,7 @@ import numpy as np
 def compute_entropy(df):
     return df.apply(lambda row: entropy(row), axis=1)
 
-def compute_jsd(dfs):
+def compute_uncertanties(dfs):
     # Compute single model entropies
     for df in dfs:
         df['entropy'] = compute_entropy(df[['First', 'Second']])
@@ -37,33 +37,71 @@ def compute_jsd(dfs):
     
     avg_df['EnsEntropy'] = compute_entropy(avg_df[['First', 'Second']])
     uq = avg_df['EnsEntropy'] - avg_df['AvgEntropy']
-    return uq
+    return uq, avg_df['EnsEntropy'], avg_df['AvgEntropy']
 
+
+def plot_histogram(df, ax, label, bins, xlim, ylim, title):
+    sns.histplot(df, stat='probability', label=label, bins=bins, ax=ax)
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_title(title)
+
+def save_plots(filepath, fig):
+    fig.savefig(f'{filepath}.eps', format='eps')
+    fig.savefig(f'{filepath}.jpg')
+    fig.savefig(f'{filepath}.svg')
+
+def create_directory(directory_path):
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
 
 def main(args):
+    sns.set_theme()
+    sns.set_context("paper")
     ckpts = [1] + list(range(args.min_ckpt, args.max_ckpt, args.steps_ckpt))
-    for i in ckpts:      
+    create_directory(f'./images/{args.experiment_name}')
+    create_directory(f'./images/{args.experiment_name}/epistemic')
+    create_directory(f'./images/{args.experiment_name}/predictive')
+    create_directory(f'./images/{args.experiment_name}/aleatoric')
+    for i in ckpts:
+        uncertainty_plots = {
+            'LogEpistemic': plt.subplots(),
+            'Epistemic': plt.subplots(),
+            'Predictive': plt.subplots(),
+            'Aleatoric': plt.subplots()
+        }      
         for mode in ["train", "eval", "test", "ood"]:
             ensemble_df = []
             for j in range(args.ensemble_size):
                     name = f"{args.experiment_name}_{j}"
                     datafile = os.path.join(args.experiment_prefix, name, name, f"checkpoint-{i}", f"eval_{mode}", "predictions.csv")
-                    df = load_dataset("luckeciano/uqlrm_predictions", data_files=datafile)['train'].to_pandas()
-                    ensemble_df.append(df)
+                    try: 
+                        df = load_dataset("luckeciano/uqlrm_predictions", data_files=datafile)['train'].to_pandas()
+                        ensemble_df.append(df)
+                    except:
+                        continue
         
-            uq = compute_jsd(ensemble_df)
-            sns.set_theme()
-            sns.set_context("paper")
-            sns.histplot(np.log(uq), stat='probability', label=mode, bins=100)
-            plt.legend()
-            ax = plt.gca()
-            ax.set_xlim([-14.0, 0.0])
-            ax.set_ylim([0, 0.06])
-        plt.title(f"Epistemic Uncertainty Estimation - Checkpoint {i}")
-        plt.savefig(f'./images/{args.experiment_name}/log_{args.experiment_name}_ckpt_{i}.eps', format='eps')
-        plt.savefig(f'./images/{args.experiment_name}/log_{args.experiment_name}_ckpt_{i}.jpg')
-        plt.savefig(f'./images/{args.experiment_name}/log_{args.experiment_name}_ckpt_{i}.svg')
-        plt.close()
+            print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
+            epistemic, predictive, aleatoric = compute_uncertanties(ensemble_df)
+            
+            plot_histogram(np.log(epistemic), uncertainty_plots['LogEpistemic'][1], mode, 100, \
+                           [-14.0, 0.0], [0, 0.06], f"Epistemic Uncertainty Estimation - Checkpoint {i} - Log Scale")
+            plot_histogram(epistemic, uncertainty_plots['Epistemic'][1], mode, 100, \
+                           [0.0, 0.5], [0, 0.1], f"Epistemic Uncertainty Estimation - Checkpoint {i}")
+            plot_histogram(predictive, uncertainty_plots['Predictive'][1], mode, 100, \
+                           [0.40, 0.70], [0, 0.1], f"Predictive Uncertainty Estimation - Checkpoint {i}")
+            plot_histogram(aleatoric, uncertainty_plots['Aleatoric'][1], mode, 100, \
+                           [0.35, 0.70], [0, 0.1], f"Aleatoric Uncertainty Estimation - Checkpoint {i}")
+
+        uncertainty_plots['LogEpistemic'][1].legend()
+        uncertainty_plots['Epistemic'][1].legend()
+        uncertainty_plots['Predictive'][1].legend()
+        uncertainty_plots['Aleatoric'][1].legend()
+
+        save_plots(f'./images/{args.experiment_name}/epistemic/log_{args.experiment_name}_ckpt_{i}', uncertainty_plots['LogEpistemic'][0])
+        save_plots(f'./images/{args.experiment_name}/epistemic/{args.experiment_name}_ckpt_{i}', uncertainty_plots['Epistemic'][0])
+        save_plots(f'./images/{args.experiment_name}/predictive/{args.experiment_name}_ckpt_{i}', uncertainty_plots['Predictive'][0])
+        save_plots(f'./images/{args.experiment_name}/aleatoric/{args.experiment_name}_ckpt_{i}', uncertainty_plots['Aleatoric'][0])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate uncertainty plot.')

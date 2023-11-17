@@ -22,10 +22,15 @@ def compute_calibration(df, calibration_dict):
         calibration_dict[alpha].append(accuracy)    
     return calibration_dict
 
+def create_directory(directory_path):
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
 
 def main(args):
     ckpts = [1] + list(range(args.min_ckpt, args.max_ckpt, args.steps_ckpt))
-    for i in ckpts:      
+    for i in ckpts:   
+        create_directory(f'./images/{args.experiment_name}')
+        create_directory(f'./images/{args.experiment_name}/model_calibration')   
         for mode in ["train", "eval", "test", "ood"]:
             calibration_dict = {}
             for alpha in np.linspace(0.55, 0.95, args.num_bins):
@@ -34,8 +39,12 @@ def main(args):
             for j in range(args.ensemble_size):
                 name = f"{args.experiment_name}_{j}"
                 datafile = os.path.join(args.experiment_prefix, name, name, f"checkpoint-{i}", f"eval_{mode}", "predictions.csv")
-                df = load_dataset("luckeciano/uqlrm_predictions", data_files=datafile)['train'].to_pandas()
-                calibration_dict = compute_calibration(df, calibration_dict)
+                try: 
+                    df = load_dataset("luckeciano/uqlrm_predictions", data_files=datafile)['train'].to_pandas()
+                    calibration_dict = compute_calibration(df, calibration_dict)
+                except:
+                    continue
+                
 
             # means, lb, up, alphas = compute_calibration_stats(calibration_dict)
             df = pd.DataFrame.from_dict(calibration_dict, orient='index').transpose()
@@ -51,9 +60,9 @@ def main(args):
         plt.title(f"Model Calibration - Checkpoint {i}")
         x = np.linspace(0.55, 1.0, args.num_bins)
         sns.lineplot(x=x, y=x, color='black', linestyle='dashed', label="Ideal")
-        plt.savefig(f'./images/{args.experiment_name}/model_calibration_{args.experiment_name}_ckpt_{i}.svg')
-        plt.savefig(f'./images/model_calibration_{args.experiment_name}_ckpt_{i}.eps', format='eps')
-        plt.savefig(f'./images/model_calibration_{args.experiment_name}_ckpt_{i}.jpg')
+        plt.savefig(f'./images/{args.experiment_name}/model_calibration/{args.experiment_name}_ckpt_{i}.svg')
+        plt.savefig(f'./images/{args.experiment_name}/model_calibration/{args.experiment_name}_ckpt_{i}.eps', format='eps')
+        plt.savefig(f'./images/{args.experiment_name}/model_calibration/{args.experiment_name}_ckpt_{i}.jpg')
         plt.close()
 
 if __name__ == "__main__":
