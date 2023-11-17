@@ -44,13 +44,14 @@ class ScriptArguments:
     valid_split: Optional[str] = field(default="valid1", metadata={"help": "the split to use"})
     test_split: Optional[str] = field(default="valid2_reddit", metadata={"help": "the split to use"})
     ood_split: Optional[str] = field(default="valid2_cnn", metadata={"help": "the split to use"})
-    train_split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
     streaming: Optional[bool] = field(default=False, metadata={"help": "whether to stream the dataset"})
     size_valid_set: Optional[int] = field(default=4000, metadata={"help": "the size of the validation set"})
     test_split_size: Optional[float] = field(default=0.005, metadata={"help": "size of test split"})
     shuffle_buffer: Optional[int] = field(default=5000, metadata={"help": "the shuffle buffer size"})
     seq_length: Optional[int] = field(default=512, metadata={"help": "the sequence length"})
     num_workers: Optional[int] = field(default=4, metadata={"help": "the number of workers"})
+    undersample_eval: Optional[bool] = field(default=False, metadata={"help": "whether to undersample eval datasets for faster evaluation"})
+    undersample_ratio: Optional[float] = field(default=0.1, metadata={"help": "ratio of the dataset to consider for faster eval"})
 
     max_steps: Optional[int] = field(default=-1, metadata={"help": "Max gradient steps. Overrides num_train_epochs if set."})
     num_train_epochs: Optional[int] = field(default=1, metadata={"help": "number of epochs"})
@@ -193,6 +194,10 @@ def create_datasets(args, ood=False):
 
     return final_train_dataset, final_valid_dataset, final_test_dataset
 
+def undersample_dataset(dataset, ratio):
+    dataset = dataset.train_test_split(test_size=ratio, seed=None)
+    return dataset["test"]
+
 def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
     predictions, labels, inputs = eval_pred
     # Here, predictions is rewards_chosen and rewards_rejected.
@@ -204,7 +209,14 @@ def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
 
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
 train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, ood=True)
-eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
+
+if script_args.undersample_eval:
+    undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio)
+    undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio)
+    undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio)
+    eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": ood_dataset}
+else:
+    eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
 
 # Define Reward Collator with Indices:
 reward_collator = RewardDataCollatorWithPaddingAndIndices(tokenizer, max_length=reward_config.max_length)
