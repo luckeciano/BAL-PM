@@ -294,28 +294,29 @@ class RewardTrainerWithCustomEval(RewardTrainer):
         return EvalLoopOutput(predictions=all_preds, label_ids=all_labels, metrics=metrics, num_samples=num_samples)
     
     def save_predictions(self, predictions, indices, trial, run_name, metric_key_prefix="eval"):
-        checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
+        if self.state.global_step % self.args.save_predictions_steps == 0:
+            checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
 
-        run_dir = self._get_output_dir(trial=trial)
-        output_dir = os.path.join(run_dir, run_name, checkpoint_folder, metric_key_prefix)
-        df = pd.DataFrame(predictions, columns=["First", "Second"])
-        df['id'] = indices.reshape(-1, 1)
+            run_dir = self._get_output_dir(trial=trial)
+            output_dir = os.path.join(run_dir, run_name, checkpoint_folder, metric_key_prefix)
+            df = pd.DataFrame(predictions, columns=["First", "Second"])
+            df['id'] = indices.reshape(-1, 1)
 
-        # Create the folder if it doesn't exist
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+            # Create the folder if it doesn't exist
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
 
-        output_filedir=os.path.join(output_dir, "predictions.csv")
-        df.to_csv(output_filedir, index=False)
+            output_filedir=os.path.join(output_dir, "predictions.csv")
+            df.to_csv(output_filedir, index=False)
 
-        if self.args.push_predictions_to_hub:
-            api = HfApi()
-            api.upload_file(
-                path_or_fileobj=output_filedir,
-                path_in_repo=output_filedir,
-                repo_id=self.args.predictions_dataset_hub,
-                repo_type="dataset",
-            )
+            if self.args.push_predictions_to_hub:
+                api = HfApi()
+                api.upload_file(
+                    path_or_fileobj=output_filedir,
+                    path_in_repo=output_filedir,
+                    repo_id=self.args.predictions_dataset_hub,
+                    repo_type="dataset",
+                )
     
     
         

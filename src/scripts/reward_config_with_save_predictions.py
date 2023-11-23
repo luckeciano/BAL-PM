@@ -14,4 +14,6 @@ class RewardConfigWithSavedPredictions(RewardConfig):
 
     predictions_dataset_hub: Optional[str] = None
 
+    save_predictions_steps: Optional[int] = 25
+
 
