@@ -1,5 +1,6 @@
 # Tokenize chosen/rejected pairs of inputs
 # Adapt this section to your needs for custom datasets
+from sklearn.utils import shuffle
 
 def chosen_rejected_preprocess_function(examples, tokenizer, max_len):
     new_examples = {
@@ -57,3 +58,26 @@ def redditcnn_preprocess_function(examples, tokenizer, max_len):
         new_examples["id"].append(id)
 
     return new_examples
+
+def shuffle_tokens(examples, tokenizer, max_len):
+    new_examples = {
+        "input_ids_chosen": [],
+        "attention_mask_chosen": [],
+        "input_ids_rejected": [],
+        "attention_mask_rejected": [],
+        "id": []
+    }
+
+    for input_chosen, mask_chosen, input_rejected, mask_rejected, id in zip(examples["input_ids_chosen"], \
+            examples["attention_mask_chosen"], examples["input_ids_rejected"], examples["attention_mask_rejected"], examples["id"]):
+        shuffled_input_chosen, shuffled_mask_chosen = shuffle(input_chosen, mask_chosen)
+        shuffled_input_rejected, shuffled_mask_rejected = shuffle(input_rejected, mask_rejected)
+
+        new_examples["input_ids_chosen"].append(shuffled_input_chosen)
+        new_examples["attention_mask_chosen"].append(shuffled_mask_chosen)
+        new_examples["input_ids_rejected"].append(shuffled_input_rejected)
+        new_examples["attention_mask_rejected"].append(shuffled_mask_rejected)
+        new_examples["id"].append(id)
+
+    return new_examples
+        

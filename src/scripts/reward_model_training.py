@@ -192,7 +192,7 @@ def create_datasets(args, ood=False):
         final_ood_dataset = process_and_filter_dataset(ood_dataset, reward_config)
         return final_train_dataset, final_valid_dataset, final_test_dataset, final_ood_dataset
 
-    return final_train_dataset, final_valid_dataset, final_test_dataset
+    return final_train_dataset, final_valid_dataset, final_test_dataset, final_shuffled_test_dataset
 
 def undersample_dataset(dataset, ratio):
     dataset = dataset.train_test_split(test_size=ratio, seed=None)
@@ -217,6 +217,15 @@ if script_args.undersample_eval:
     eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": ood_dataset}
 else:
     eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
+
+# Adding a shuffled version of the test dataset
+final_shuffled_test_dataset = eval_sets['test'].map(lambda example:
+    dataset_process_factory.shuffle_tokens(example, tokenizer, reward_config.max_length),
+    batched=True,
+    num_proc=4,
+)
+
+eval_sets['shuffled'] = final_shuffled_test_dataset
 
 # Define Reward Collator with Indices:
 reward_collator = RewardDataCollatorWithPaddingAndIndices(tokenizer, max_length=reward_config.max_length)
