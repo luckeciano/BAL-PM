@@ -85,6 +85,7 @@ class ScriptArguments:
 
     push_predictions_to_hub: Optional[bool] = field(default=False, metadata={"help": "Enable storing predictions from test sets in hub."})
     predictions_dataset_hub: Optional[str] = field(default=None, metadata={"help": "The datasets hub repository to save predictions."})
+    save_predictions_steps: Optional[int] = field(default=25, metadata={"help": "the saving predictions frequency"})
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
@@ -108,6 +109,7 @@ reward_config = RewardConfigWithSavedPredictions(
             run_name=script_args.run_name,
             push_predictions_to_hub=script_args.push_predictions_to_hub,
             predictions_dataset_hub=script_args.predictions_dataset_hub,
+            save_predictions_steps=script_args.save_predictions_steps,
             log_level="debug")
 
 
