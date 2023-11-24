@@ -294,7 +294,7 @@ class RewardTrainerWithCustomEval(RewardTrainer):
         return EvalLoopOutput(predictions=all_preds, label_ids=all_labels, metrics=metrics, num_samples=num_samples)
     
     def save_predictions(self, predictions, indices, trial, run_name, metric_key_prefix="eval"):
-        if self.state.global_step % self.args.save_predictions_steps == 0:
+        if self.state.global_step % self.args.save_predictions_steps == 0 or self.state.global_step == 1:
             checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
 
             run_dir = self._get_output_dir(trial=trial)
