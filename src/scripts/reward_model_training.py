@@ -85,7 +85,7 @@ class ScriptArguments:
 
     push_predictions_to_hub: Optional[bool] = field(default=False, metadata={"help": "Enable storing predictions from test sets in hub."})
     predictions_dataset_hub: Optional[str] = field(default=None, metadata={"help": "The datasets hub repository to save predictions."})
-    save_predictions_steps: Optional[int] = field(default=25, metadata={"help": "the saving predictions frequency"})
+    save_predictions_steps: Optional[int] = field(default=20, metadata={"help": "the saving predictions frequency"})
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
@@ -197,7 +197,7 @@ def create_datasets(args, ood=False):
     return final_train_dataset, final_valid_dataset, final_test_dataset, final_shuffled_test_dataset
 
 def undersample_dataset(dataset, ratio):
-    dataset = dataset.train_test_split(test_size=ratio, seed=None)
+    dataset = dataset.train_test_split(test_size=ratio, seed=42)
     return dataset["test"]
 
 def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
