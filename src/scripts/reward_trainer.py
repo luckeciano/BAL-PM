@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import os
 import pandas as pd
+import time
 import numpy as np
 from packaging import version
 from huggingface_hub import HfApi
@@ -311,12 +312,22 @@ class RewardTrainerWithCustomEval(RewardTrainer):
 
             if self.args.push_predictions_to_hub:
                 api = HfApi()
-                api.upload_file(
-                    path_or_fileobj=output_filedir,
-                    path_in_repo=output_filedir,
-                    repo_id=self.args.predictions_dataset_hub,
-                    repo_type="dataset",
-                )
+                succeeded = False
+                for _ in range(3): # 3 retries
+                    if succeeded:
+                        break
+                    try:
+                        api.upload_file(
+                            path_or_fileobj=output_filedir,
+                            path_in_repo=output_filedir,
+                            repo_id=self.args.predictions_dataset_hub,
+                            repo_type="dataset",
+                        )
+                        succeeded = True
+                    except:
+                        succeeded = False
+                        time.sleep(20) # Wait 20 seconds until next retry
+
     
     
         
