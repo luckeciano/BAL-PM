@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, Union, List
 from tqdm import tqdm
+from utils import print_trainable_parameters
 
 import torch
 
@@ -91,22 +92,6 @@ def chars_token_ratio(dataset, tokenizer, nb_examples=400):
             total_tokens += len(tokenizer.tokenize(text))
 
     return total_characters / total_tokens
-
-
-def print_trainable_parameters(model):
-    """
-    Prints the number of trainable parameters in the model.
-    """
-    trainable_params = 0
-    all_param = 0
-    for _, param in model.named_parameters():
-        all_param += param.numel()
-        if param.requires_grad:
-            trainable_params += param.numel()
-    print(
-        f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
-    )
-    print(model)
 
 def prepare_sample_text(example):
     """Prepare the text from a sample of the dataset."""
