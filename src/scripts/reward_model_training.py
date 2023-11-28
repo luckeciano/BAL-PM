@@ -27,7 +27,7 @@ from reward_collator import RewardDataCollatorWithPaddingAndIndices
 from reward_config_with_save_predictions import RewardConfigWithSavedPredictions
 from reward_trainer import RewardTrainerWithCustomEval
 import dataset_process_factory
-
+from utils import print_trainable_parameters
 
 tqdm.pandas()
 
@@ -154,6 +154,7 @@ model = AutoModelForSequenceClassification.from_pretrained(
     torch_dtype=torch_dtype
 )
 
+print_trainable_parameters(model)
 
 # Step 2: Load the dataset and pre-process it
 tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, trust_remote_code=True, truncation=True, max_length=script_args.seq_length)
