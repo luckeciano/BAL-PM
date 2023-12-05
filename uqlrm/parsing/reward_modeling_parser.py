@@ -37,6 +37,7 @@ class RewardModelingArguments:
     )
     group_by_length: Optional[bool] = field(default=False, metadata={"help": "whether to group by length"})
     packing: Optional[bool] = field(default=True, metadata={"help": "whether to use packing for SFTTrainer"})
+    bf16: Optional[bool] = field(default=True, metadata={"help": "whether to enable bf16 training"})
 
     use_peft: Optional[bool] = field(default=True, metadata={"help": "Wether to use PEFT or not to train adapters"})
     peft_lora_r: Optional[int] = field(default=16, metadata={"help": "the r parameter of the LoRA adapters"})

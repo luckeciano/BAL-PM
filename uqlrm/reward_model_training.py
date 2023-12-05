@@ -131,7 +131,7 @@ reward_config = RewardConfigWithSavedPredictions(
             push_predictions_to_hub=script_args.push_predictions_to_hub,
             predictions_dataset_hub=script_args.predictions_dataset_hub,
             save_predictions_steps=script_args.save_predictions_steps,
-            # bf16=True,
+            bf16=script_args.bf16,
             log_level="debug")
 
 
