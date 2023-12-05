@@ -110,6 +110,7 @@ reward_config = RewardConfigWithSavedPredictions(
             push_predictions_to_hub=script_args.push_predictions_to_hub,
             predictions_dataset_hub=script_args.predictions_dataset_hub,
             save_predictions_steps=script_args.save_predictions_steps,
+            bf16=True,
             log_level="debug")
 
 
@@ -153,8 +154,6 @@ model = AutoModelForSequenceClassification.from_pretrained(
     num_labels=1,
     torch_dtype=torch_dtype
 )
-
-print_trainable_parameters(model)
 
 # Step 2: Load the dataset and pre-process it
 tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, trust_remote_code=True, truncation=True, max_length=script_args.seq_length)
@@ -243,5 +242,8 @@ trainer = RewardTrainerWithCustomEval(
 )
 
 trainer.add_callback(EvaluateFirstStepCallback())
+
+
+print_trainable_parameters(model)
 
 trainer.train()
