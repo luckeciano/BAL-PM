@@ -6,21 +6,8 @@ from scipy.stats import entropy
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+from plot_utils import compute_calibration
 
-
-def compute_calibration(df, calibration_dict):
-    previous_alpha = 0.5
-    for alpha in np.linspace(0.55, 0.95, args.num_bins):
-        right_points = df[(df['First'] <= alpha) & (df['First'] > previous_alpha)]
-        wrong_points = df[(df['Second'] <= alpha) & (df['Second'] > previous_alpha)]
-        total_points = (len(right_points) + len(wrong_points))
-        if total_points == 0:
-            accuracy = 1.0
-        else:
-            accuracy = len(right_points) / (len(right_points) + len(wrong_points))
-        previous_alpha = alpha
-        calibration_dict[alpha].append(accuracy)    
-    return calibration_dict
 
 def create_directory(directory_path):
     if not os.path.exists(directory_path):
@@ -31,7 +18,7 @@ def main(args):
     for i in ckpts:   
         create_directory(f'./images/{args.experiment_name}')
         create_directory(f'./images/{args.experiment_name}/model_calibration')   
-        for mode in ["train", "eval", "test", "ood"]:
+        for mode in ["train", "eval", "test", "ood", "shuffled"]:
             calibration_dict = {}
             for alpha in np.linspace(0.55, 0.95, args.num_bins):
                 calibration_dict[alpha] = []
@@ -41,7 +28,7 @@ def main(args):
                 datafile = os.path.join(args.experiment_prefix, name, name, f"checkpoint-{i}", f"eval_{mode}", "predictions.csv")
                 try: 
                     df = load_dataset("luckeciano/uqlrm_predictions", data_files=datafile)['train'].to_pandas()
-                    calibration_dict = compute_calibration(df, calibration_dict)
+                    calibration_dict = compute_calibration(df, calibration_dict, args)
                 except:
                     continue
                 

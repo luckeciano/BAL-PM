@@ -1,4 +1,3 @@
-import imageio
 import argparse
 import os
 from PIL import Image
@@ -6,7 +5,7 @@ from PIL import Image
 def make_gif(args):
     frames = []
     ckpts = [1] + list(range(args.min_ckpt, args.max_ckpt, args.steps_ckpt))
-    postfix = f"{args.experiment_postfix}_" if args.experiment_postfix is not None else ""
+    postfix = f"{args.experiment_postfix}_" if args.experiment_postfix else ""
 
     for ckpt in ckpts:
         filename = os.path.join('./images', args.experiment_name, args.experiment_prefix, f"{postfix}{args.experiment_name}_ckpt_{ckpt}.jpg")
