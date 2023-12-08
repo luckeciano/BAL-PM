@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=4
-#SBATCH --gres=gpu:1
 #SBATCH --job-name="jupyter"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err

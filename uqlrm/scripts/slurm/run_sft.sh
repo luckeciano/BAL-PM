@@ -20,14 +20,24 @@ echo $TMPDIR
 
 nvidia-smi
 
+huggingface-cli login --token $HUGGINGFACE_TOKEN
+
 python ~/UQLRM/src/scripts/sft.py \
---per_device_train_batch_size 8 \
---per_device_eval_batch_size 8 \
---output_dir /scratch/lucelo/sft/results/gpt2_nopeft_batch8_5epochs_a100 \
---run_name "gpt2_nopeft_batch8_5epochs_a100" \
---use_peft False \
+--per_device_train_batch_size 4 \
+--per_device_eval_batch_size 4 \
+--output_dir /scratch/lucelo/sft/results/gpt2_xl_reddit_lora_batch4 \
+--model_name "gpt2-xl" \
+--dataset_name "webis/tldr-17" \
+--dataset_text_field "normalizedBody" \
+--run_name "gpt2_xl_reddit_lora_batch4" \
 --quantization_scheme "none" \
---num_train_epochs 5 \
+--max_steps 32000 \
+--peft_lora_target_modules "c_attn" \
+--peft_lora_r 16 \
+--peft_lora_alpha 32 \
+--test_split_size 0.0005 \
+#--use_peft False \
+#--num_train_epochs 3 \
 #--peft_lora_target_modules "c_attn" \
 #--peft_lora_r 16 \
 #--peft_lora_alpha 32 \

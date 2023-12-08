@@ -21,6 +21,6 @@ nvidia-smi
 huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
 
 python3 ~/UQLRM/src/scripts/merge_peft_adapter.py \
---adapter_model_name "luckeciano/llama-sft-reddit" \
---base_model_name "meta-llama/Llama-2-7b-hf" \
---output_name "luckeciano/merged-llama-sft-reddit"
+--adapter_model_name "luckeciano/gpt2-xl-sft-reddit" \
+--base_model_name "gpt2-xl" \
+--output_name "luckeciano/merged-gpt2-xl-sft-reddit"
