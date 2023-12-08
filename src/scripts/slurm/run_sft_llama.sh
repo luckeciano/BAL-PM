@@ -25,7 +25,7 @@ huggingface-cli login --token $HUGGINGFACE_TOKEN
 python ~/UQLRM/src/scripts/sft.py \
 --per_device_train_batch_size 3 \
 --per_device_eval_batch_size 3 \
---output_dir /scratch/lucelo/sft/results/llama_lora_32ksteps_noquant_batch3 \
+--output_dir /scratch/lucelo/sft/results/llama_lora_32ksteps_noquant_batch3_test \
 --max_steps 32000 \
 --model_name meta-llama/Llama-2-7b-hf \
 --quantization_scheme "none" \
@@ -33,7 +33,7 @@ python ~/UQLRM/src/scripts/sft.py \
 --peft_lora_r 8 \
 --peft_lora_alpha 16 \
 --peft_lora_dropout 0.05 \
---run_name "llama-sft_lora_32ksteps_noquant" \
+--run_name "llama-sft_lora_32ksteps_noquant_test" \
 --test_split_size 0.0005 \
 --no_model_cache True
 

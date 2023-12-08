@@ -45,4 +45,4 @@ model = model.merge_and_unload()
 
 model.save_pretrained(f"{script_args.output_name}")
 tokenizer.save_pretrained(f"{script_args.output_name}")
-model.push_to_hub(f"{script_args.output_name}", use_temp_dir=False)
+model.push_to_hub(f"{script_args.output_name}") #, use_temp_dir=False)

@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --cpus-per-task=10
-#SBATCH --gres=gpu:titanrtx:1
-#SBATCH --job-name="reward_ft"
+#SBATCH --cpus-per-task=24
+#SBATCH --gres=gpu:a100:1
+#SBATCH --job-name="llama_rwft"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
 
@@ -28,16 +28,20 @@ python ~/UQLRM/src/scripts/reward_model_training.py \
 --output_dir /scratch/lucelo/sft/results/$1_$2 \
 --run_name "$1_$2" \
 --dataset_name "luckeciano/learning-to-summarize" \
+--per_device_train_batch_size 64 \
 --per_device_eval_batch_size 64 \
---model_name "luckeciano/gpt2-sft-reddit" \
+--gradient_accumulation_steps 1 \
+--model_name "luckeciano/merged-llama-sft-reddit" \
 --quantization_scheme "none" \
 --push_predictions_to_hub True \
 --predictions_dataset_hub "luckeciano/uqlrm_predictions" \
---use_peft False \
---eval_steps 10 \
---logging_steps 10 \
---save_steps 100 \
---save_predictions_steps 20 \
+--use_peft True \
+--eval_steps 1000 \
+--logging_steps 1000 \
+--save_steps 1000 \
+--save_predictions_steps 1000 \
 --num_train_epochs 10 \
 --undersample_eval True \
---undersample_ratio 0.1  \
+--undersample_ratio 0.1 \
+--learning_rate 1e-4 \
+#--peft_lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
