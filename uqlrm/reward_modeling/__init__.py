@@ -1,3 +1,3 @@
 from .reward_collator import RewardDataCollatorWithPadding, RewardDataCollatorWithPaddingAndIndices
-from .reward_config_with_save_predictions import RewardConfigWithSavedPredictions
 from .reward_trainer import RewardTrainerWithCustomEval
+from .reward_model import build_reward_model

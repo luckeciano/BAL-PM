@@ -2,11 +2,10 @@ import pandas as pd
 import argparse
 from datasets import load_dataset
 import os
-from scipy.stats import entropy
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from plot_utils import compute_uncertanties
+from metrics import compute_uncertanties
 
 def plot_histogram(df, ax, label, bins, xlim, ylim, title):
     sns.histplot(df, stat='probability', label=label, bins=bins, ax=ax)

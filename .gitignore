@@ -7,3 +7,4 @@ results
 *.svg
 *.eps
 *.gif
+*.pyc

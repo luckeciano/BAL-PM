@@ -2,7 +2,6 @@ import pandas as pd
 import argparse
 from datasets import load_dataset
 import os
-from scipy.stats import entropy
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np

@@ -1,6 +1,8 @@
 import numpy as np
 from typing import Dict
-from transformers import TrainerCallback
+from transformers import TrainerCallback, BitsAndBytesConfig
+import torch
+from accelerate import Accelerator
 
 def print_trainable_parameters(model):
     """
@@ -26,6 +28,29 @@ def compute_accuracy_with_inputs(eval_pred) -> Dict[str, float]:
 
     accuracy = np.array(predictions == labels, dtype=float).mean().item()
     return {"accuracy": accuracy, "ids": inputs}
+
+def build_model_quantization_config(script_args):
+    # Load the model
+    device_map = {"": Accelerator().local_process_index}
+    torch_dtype = torch.bfloat16
+
+    if script_args.quantization_scheme == "8bit":
+        bnb_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+        )
+    elif script_args.quantization_scheme == "4bit":
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+    else:
+        print("Loading model with no quantization!")
+        device_map = None
+        bnb_config = None
+        torch_dtype = None
+    
+    return device_map, bnb_config, torch_dtype
 
 # Callback to evaluate models with random weights
 class EvaluateFirstStepCallback(TrainerCallback):
