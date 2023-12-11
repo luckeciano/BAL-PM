@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=24
 #SBATCH --gres=gpu:a100:1
-#SBATCH --job-name="llama_rwft"
+#SBATCH --job-name="gpt2xl_rwft"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
 
