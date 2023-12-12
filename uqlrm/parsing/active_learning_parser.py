@@ -8,8 +8,12 @@ class ActiveLearningArguments:
     initial_sample_size: Optional[int] = field(default=64, metadata={"help": "Initial sample size for active learning"})
     ensemble_size: Optional[int] = field(default=8, metadata={"help": "ensemble size"})
     active_batch_size: Optional[int] = field(default=64, metadata={"help": "sample size for each active learning iteration"})
+    steps_per_epoch: Optional[int] = field(default=1, metadata={"help": "how many gradient steps to perform per epoch"})
     run_name: Optional[str] = field(
         default=None, metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."}
+    )
+    heuristic: Optional[str] = field(
+        default=None, metadata={"help": "Which heuristic to select points for active learning."}
     )
 
     # Ensemble Members Arguments

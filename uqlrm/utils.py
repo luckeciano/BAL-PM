@@ -57,3 +57,7 @@ class EvaluateFirstStepCallback(TrainerCallback):
     def on_step_begin(self, args, state, control, **kwargs):
         if state.global_step == 0:
             control.should_evaluate = True
+
+class StopCallback(TrainerCallback):
+    def on_epoch_end(self, args, state, control, logs=None, **kwargs):
+        control.should_training_stop = True

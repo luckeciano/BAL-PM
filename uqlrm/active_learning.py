@@ -3,6 +3,7 @@ from reward_modeling import build_reward_model, RewardTrainerWithCustomEval, Rew
 from dataset_utils import create_datasets, undersample_dataset, DataFrameDataset
 from metrics import compute_uncertanties, compute_ensemble_accuracy
 from parsing import ActiveLearningArguments
+from utils import StopCallback
 import pandas as pd
 from sklearn.utils import shuffle
 from datasets import load_dataset
@@ -81,6 +82,7 @@ class ActiveLearningTrainer():
     # TODO: Implement option to extend dataset with new points and run more steps
     # TODO wandb to resume logging in the same run
     # TODO make sure if the base model is changing over time
+    # TODO adjust num epochs to run a single update but load older scheduler.
     def train(self):
           
           for epoch in range(self.num_epochs):
@@ -99,6 +101,8 @@ class ActiveLearningTrainer():
                         peft_config=self.peft_config,
                     )
 
+                    trainer.add_callback(StopCallback())
+
                     trainer.train(resume_from_checkpoint=(epoch != 0))
 
                     global_step = trainer.state.global_step
@@ -106,18 +110,18 @@ class ActiveLearningTrainer():
                 # Generate Ensemble Predictions and Eval/Wandb
                 for mode in self.eval_sets.keys():
                     if mode == "train":
-                        acquisition_fn = self._eval_ensemble(mode, global_step, compute_uncertainty=True)
+                        acquisition_fn = self._eval_ensemble(mode, global_step, return_uncertainty=True)
                     else:
                         self._eval_ensemble(mode, global_step)
 
                 # Select new batch points based on uncertainty
-                nxt_batch_ids = self.select_next_batch_ids(acquisition_fn, self.al_config.heuristic, self.al_config.active_batch_size)
+                nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, self.al_config.active_batch_size).to_frame()
                 
                 # Merge with current df and remove points from it
-                self.batch = pd.merge([nxt_batch_ids, self.df_train], on='id', how='inner')
+                self.batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
 
                 # Remove these rows from initial dataset
-                all_rows = pd.merge(self.df_train, self.batch, how='outer', indicator=True)
+                all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
                 self.df_train = all_rows[all_rows['_merge'] == 'left_only']
                 self.df_train = self.df_train.drop(columns=['_merge'])
                 
@@ -128,11 +132,13 @@ class ActiveLearningTrainer():
                     initial_sample_size=args.initial_sample_size,
                     ensemble_size=args.ensemble_size,
                     active_batch_size=args.active_batch_size,
-                    run_name=args.run_name)
+                    run_name=args.run_name,
+                    heuristic=args.heuristic,
+                    output_dir=os.path.join(args.output_dir, "active_learning"))
 
     def _build_reward_config(self, args, run_name, num_epochs):
             return RewardConfigWithSavedPredictions(
-                output_dir=args.output_dir,
+                output_dir=os.path.join(args.output_dir, run_name),
                 per_device_train_batch_size=args.per_device_train_batch_size,
                 per_device_eval_batch_size=args.per_device_eval_batch_size,
                 num_train_epochs=num_epochs,
@@ -183,7 +189,7 @@ class ActiveLearningTrainer():
 
         acquisition_fn = {}
         if return_uncertainty:
-            acquisition_fn = {'epistemic': epistemic, 'predictive': predictive, 'aleatoric': aleatoric, 'var': var_predictions, 'id': ids}
+            acquisition_fn = {'Epistemic Uncertainty': epistemic, 'Predictive Uncertainty': predictive, 'Aleatoric Uncertainty': aleatoric, 'Variance': var_predictions, 'id': ids}
 
         return acquisition_fn
     
@@ -191,8 +197,8 @@ class ActiveLearningTrainer():
         df = acquisition_fn[heuristic]
         ids = acquisition_fn['id']
         final_df = pd.concat([df, ids], axis=1)
-        next_batch_ids = final_df.nlargest(batch_size)
-        return next_batch_ids[ids]
+        next_batch_ids = final_df.nlargest(batch_size, heuristic)
+        return next_batch_ids['id']
     
 
 parser = HfArgumentParser(ActiveLearningArguments)
