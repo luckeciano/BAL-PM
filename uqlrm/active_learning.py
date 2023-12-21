@@ -195,16 +195,16 @@ class ActiveLearningTrainer():
 
         return acquisition_fn
     
-    def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool):
-        df = acquisition_fn[heuristic]
-        ids = acquisition_fn['id']
-        df_id = pd.concat([df, ids], axis=1)
-        final_pool = df_id.merge(current_pool, on='id', how='inner')
-
+    def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool): 
         if heuristic == 'random':
-            next_batch_ids = final_pool.sample(n = batch_size)
+            next_batch_ids = acquisition_fn['id'].sample(n = batch_size)
         else:
+            df = acquisition_fn[heuristic]
+            ids = acquisition_fn['id']
+            df_id = pd.concat([df, ids], axis=1)
+            final_pool = df_id.merge(current_pool, on='id', how='inner')
             next_batch_ids = final_pool.nlargest(batch_size, heuristic)
+            
         return next_batch_ids['id']
     
 
