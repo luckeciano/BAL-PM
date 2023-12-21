@@ -48,4 +48,6 @@ class DataFrameDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
-        return self.df.iloc[idx]
+        batch =  self.df.iloc[idx]
+        batch.reset_index(inplace=True, drop=True)
+        return batch

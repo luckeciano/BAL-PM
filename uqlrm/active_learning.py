@@ -80,14 +80,14 @@ class ActiveLearningTrainer():
         assert rm_config.save_predictions_steps == 1, "Save Prediction Steps must happen every evaluation loop (after each epoch)"
 
     # TODO: Implement option to extend dataset with new points and run more steps
-    # TODO wandb to resume logging in the same run
-    # TODO make sure if the base model is changing over time
-    # TODO adjust num epochs to run a single update but load older scheduler.
     def train(self):
           
           for epoch in range(self.num_epochs):
                 # For each model, train separately in the sampled set:
                 for run in self.runs:
+
+                    if epoch == 0:
+                        self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
 
                     reward_collator = RewardDataCollatorWithPaddingAndIndices(self.tokenizer, max_length=run.max_length)
 
@@ -105,8 +105,9 @@ class ActiveLearningTrainer():
 
                     trainer.train(resume_from_checkpoint=(epoch != 0))
 
-                    global_step = trainer.state.global_step
+                    global_step = trainer.state.global_step      
 
+                self.state.global_step = global_step
                 # Generate Ensemble Predictions and Eval/Wandb
                 for mode in self.eval_sets.keys():
                     if mode == "train":
@@ -115,10 +116,11 @@ class ActiveLearningTrainer():
                         self._eval_ensemble(mode, global_step)
 
                 # Select new batch points based on uncertainty
-                nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, self.al_config.active_batch_size).to_frame()
+                nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, self.al_config.active_batch_size, self.df_train).to_frame()
                 
                 # Merge with current df and remove points from it
                 self.batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
+                self.batch = DataFrameDataset(self.batch)
 
                 # Remove these rows from initial dataset
                 all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
@@ -179,11 +181,11 @@ class ActiveLearningTrainer():
         avg_var = var_predictions.mean()
         acc = compute_ensemble_accuracy(ens_probs)
         logs = { 
-            f"{mode}/EnsAvgEpistemic": avg_ep, 
-            f"{mode}/EnsAvgPredictive": avg_pred, 
-            f"{mode}/EnsAvgAleatoric": avg_ale, 
-            f"{mode}/EnsAvgVariance": avg_var, 
-            f"{mode}/EnsAvgAccuracy": acc}
+            f"ensemble/{mode}_EnsAvgEpistemic": avg_ep, 
+            f"ensemble{mode}_EnsAvgPredictive": avg_pred, 
+            f"ensemble/{mode}_EnsAvgAleatoric": avg_ale, 
+            f"ensemble/{mode}_EnsAvgVariance": avg_var, 
+            f"ensemble/{mode}_EnsAvgAccuracy": acc}
         
         self.callback_handler.on_log(self.al_config, self.state, self.control, logs)
 
@@ -193,11 +195,12 @@ class ActiveLearningTrainer():
 
         return acquisition_fn
     
-    def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size):
+    def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool):
         df = acquisition_fn[heuristic]
         ids = acquisition_fn['id']
-        final_df = pd.concat([df, ids], axis=1)
-        next_batch_ids = final_df.nlargest(batch_size, heuristic)
+        df_id = pd.concat([df, ids], axis=1)
+        final_pool = df_id.merge(current_pool, on='id', how='inner')
+        next_batch_ids = final_pool.nlargest(batch_size, heuristic)
         return next_batch_ids['id']
     
 

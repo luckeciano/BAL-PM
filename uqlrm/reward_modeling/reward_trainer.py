@@ -328,6 +328,31 @@ class RewardTrainerWithCustomEval(RewardTrainer):
                         succeeded = False
                         time.sleep(20) # Wait 20 seconds until next retry
 
+    def log(self, logs: Dict[str, float]) -> None:
+        """
+        Log `logs` on the various objects watching training.
+
+        Subclass and override this method to inject custom behavior.
+
+        Args:
+            logs (`Dict[str, float]`):
+                The values to log.
+        """
+        if self.state.epoch is not None:
+            logs["epoch"] = round(self.state.epoch, 2)
+
+        output = {**logs, **{"step": self.state.global_step}}
+
+        logs = self._rewrite_logs(output, self.args.run_name)
+        self.state.log_history.append(output)
+        self.control = self.callback_handler.on_log(self.args, self.state, self.control, logs)
+
+    def _rewrite_logs(self, d, run_name):
+        new_d = {}
+        for k, v in d.items():
+            new_d[f"{run_name}/" + k] = v
+        return new_d
+
     
     
         
