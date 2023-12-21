@@ -200,7 +200,11 @@ class ActiveLearningTrainer():
         ids = acquisition_fn['id']
         df_id = pd.concat([df, ids], axis=1)
         final_pool = df_id.merge(current_pool, on='id', how='inner')
-        next_batch_ids = final_pool.nlargest(batch_size, heuristic)
+
+        if heuristic == 'random':
+            next_batch_ids = final_pool.sample(n = batch_size)
+        else:
+            next_batch_ids = final_pool.nlargest(batch_size, heuristic)
         return next_batch_ids['id']
     
 
