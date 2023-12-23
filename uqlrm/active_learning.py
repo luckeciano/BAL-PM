@@ -5,6 +5,7 @@ from metrics import compute_uncertanties, compute_ensemble_accuracy
 from parsing import ActiveLearningArguments
 from utils import StopCallback
 import pandas as pd
+import torch
 from sklearn.utils import shuffle
 from datasets import load_dataset
 import os
@@ -81,13 +82,18 @@ class ActiveLearningTrainer():
 
     # TODO: Implement option to extend dataset with new points and run more steps
     def train(self):
-          
+          seed = 0
           for epoch in range(self.num_epochs):
                 # For each model, train separately in the sampled set:
                 for run in self.runs:
 
                     if epoch == 0:
                         self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
+                        # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
+                        # Also requires different seeds, otherwise it samples the same initial weights
+                        self._reinit_linear_layer(self.base_model.score, self.base_model.config, seed)
+                        seed += 1   
+
 
                     reward_collator = RewardDataCollatorWithPaddingAndIndices(self.tokenizer, max_length=run.max_length)
 
@@ -162,6 +168,11 @@ class ActiveLearningTrainer():
                 bf16=args.bf16,
                 log_level="debug")
 
+    def _reinit_linear_layer(self, module, config, seed):
+        module.weight.data.normal_(mean=0.0, std=config.initializer_range, generator=torch.manual_seed(seed))
+        if module.bias is not None:
+            module.bias.data.zero_()
+
     def _eval_ensemble(self, mode, global_step, return_uncertainty=False):
         ensemble_df = []
         for run in self.runs:
@@ -197,16 +208,15 @@ class ActiveLearningTrainer():
     
     def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool): 
         if heuristic == 'random':
-            selected_ids = acquisition_fn['id'].sample(n = batch_size)
+            next_batch_ids = current_pool.sample(n = batch_size)
         else:
             df = acquisition_fn[heuristic]
             ids = acquisition_fn['id']
             df_id = pd.concat([df, ids], axis=1)
             final_pool = df_id.merge(current_pool, on='id', how='inner')
             next_batch_ids = final_pool.nlargest(batch_size, heuristic)
-            selected_ids = next_batch_ids['id']
             
-        return selected_ids
+        return next_batch_ids['id']
 
 parser = HfArgumentParser(ActiveLearningArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
