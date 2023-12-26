@@ -42,6 +42,7 @@ class ActiveLearningArguments:
     eval_strategy: Optional[str] = field(default="epoch", metadata={"help": "evaluation strategy"})
     logging_strategy: Optional[str] = field(default="epoch", metadata={"help": "logging strategy"})
     save_strategy: Optional[str] = field(default="epoch", metadata={"help": "save strategy"})
+    save_total_limit: Optional[int] = field(default=1, metadata={"help": "Max number of checkpoints per member."})
 
     per_device_train_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device train batch size"})
     per_device_eval_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device eval batch size"})

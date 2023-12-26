@@ -132,6 +132,11 @@ class ActiveLearningTrainer():
                 all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
                 self.df_train = all_rows[all_rows['_merge'] == 'left_only']
                 self.df_train = self.df_train.drop(columns=['_merge'])
+
+                del self.base_model, self.tokenizer
+                # For each epoch, re-instatiate the base_model after deleting previous instance
+                # The goal is to clean the previous computational graph and prevend headaches related to continuously loading new checkpoints
+                self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
                 
         
 
@@ -165,6 +170,7 @@ class ActiveLearningTrainer():
                 push_predictions_to_hub=args.push_predictions_to_hub,
                 predictions_dataset_hub=args.predictions_dataset_hub,
                 save_predictions_steps=args.save_predictions_steps,
+                save_total_limit=args.save_total_limit,
                 bf16=args.bf16,
                 log_level="debug")
 
