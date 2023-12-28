@@ -122,7 +122,8 @@ class ActiveLearningTrainer():
                         self._eval_ensemble(mode, global_step)
 
                 # Select new batch points based on uncertainty
-                nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, self.al_config.active_batch_size, self.df_train).to_frame()
+                nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, \
+                                        self.al_config.active_batch_size, self.df_train, self.al_config.selection_strategy).to_frame()
                 
                 # Merge with current df and remove points from it
                 self.batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
@@ -147,6 +148,7 @@ class ActiveLearningTrainer():
                     active_batch_size=args.active_batch_size,
                     run_name=args.run_name,
                     heuristic=args.heuristic,
+                    selection_strategy=args.selection_strategy,
                     output_dir=os.path.join(args.output_dir, "active_learning"))
 
     def _build_reward_config(self, args, run_name, num_epochs):
@@ -212,7 +214,7 @@ class ActiveLearningTrainer():
 
         return acquisition_fn
     
-    def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool): 
+    def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool, selection_strategy): 
         if heuristic == 'random':
             next_batch_ids = current_pool.sample(n = batch_size)
         else:
@@ -220,7 +222,12 @@ class ActiveLearningTrainer():
             ids = acquisition_fn['id']
             df_id = pd.concat([df, ids], axis=1)
             final_pool = df_id.merge(current_pool, on='id', how='inner')
-            next_batch_ids = final_pool.nlargest(batch_size, heuristic)
+
+            if selection_strategy == 'rank':
+                next_batch_ids = final_pool.nlargest(batch_size, heuristic)
+            elif selection_strategy == 'sample':
+                normalized_probs = final_pool[heuristic] / final_pool[heuristic].sum()
+                next_batch_ids = final_pool.sample(n=batch_size, replace=False, weights=normalized_probs)
             
         return next_batch_ids['id']
 

@@ -28,7 +28,7 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --output_dir /scratch/lucelo/active_learning/results/$1 \
 --run_name "$1" \
 --dataset_name "luckeciano/learning-to-summarize" \
---per_device_eval_batch_size 64 \
+--per_device_eval_batch_size 512 \
 --model_name "luckeciano/gpt2-sft-reddit" \
 --quantization_scheme "none" \
 --push_predictions_to_hub True \
@@ -36,9 +36,9 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --use_peft False \
 --undersample_eval True \
 --undersample_ratio 0.1  \
---initial_sample_size 64 \
+--initial_sample_size 640 \
 --ensemble_size 8 \
---active_batch_size 64 \
+--active_batch_size 640 \
 --per_device_train_batch_size 64 \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \

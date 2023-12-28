@@ -24,6 +24,8 @@ class ActiveLearningConfig():
 
     heuristic: Optional[str] = "epistemic"
 
+    selection_strategy: Optional[str] = "rank"
+
     def to_dict(self):
         return asdict(self)
 

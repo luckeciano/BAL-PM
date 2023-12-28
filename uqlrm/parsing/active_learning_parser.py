@@ -15,6 +15,10 @@ class ActiveLearningArguments:
     heuristic: Optional[str] = field(
         default=None, metadata={"help": "Which heuristic to select points for active learning."}
     )
+    selection_strategy: Optional[str] = field(
+        default="rank", metadata={"help": "Strategy to select points for active batch, given heuristic scores."}
+    )
+
 
     # Ensemble Members Arguments
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
