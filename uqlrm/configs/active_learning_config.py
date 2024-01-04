@@ -18,6 +18,8 @@ class ActiveLearningConfig():
 
     active_batch_size: Optional[int] = 64
 
+    pool_size: Optional[int] = 4096
+
     run_name: Optional[str] = "ActiveLearningRun"
 
     output_dir: Optional[str] = "./output"

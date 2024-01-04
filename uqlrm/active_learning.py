@@ -5,8 +5,11 @@ from metrics import compute_uncertanties, compute_ensemble_accuracy
 from parsing import ActiveLearningArguments
 from utils import StopCallback
 import pandas as pd
+import numpy as np
 import torch
+from torch.utils.data import Subset
 from sklearn.utils import shuffle
+from sklearn.metrics import log_loss
 from datasets import load_dataset
 import os
 from transformers.trainer_callback import CallbackHandler, TrainerState, TrainerControl, DefaultFlowCallback
@@ -29,17 +32,20 @@ class ActiveLearningTrainer():
 
         train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, self.tokenizer, ood=True)
 
+        # Downsample training set to the pool size
+        indices = list(range(len(train_dataset)))
+        indices = shuffle(indices, random_state=script_args.seed)
+        indices = indices[:self.al_config.pool_size]
+        train_dataset = Subset(train_dataset, indices)
+        
+        self.df_train = pd.DataFrame([train_dataset[i] for i in range(len(train_dataset))])
+
         if script_args.undersample_eval:
-            undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio)
-            undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio)
-            undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio)
-            self.eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": ood_dataset}
+            undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio, script_args.seed)
+            undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio, script_args.seed)
+            self.eval_sets = {"train": train_dataset, "eval": undersampled_eval, "test": undersampled_test, "ood": ood_dataset}
         else:
-            self.eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
-        
-        
-        # Select initial dataset
-        self.df_train = shuffle(pd.DataFrame([train_dataset[i] for i in range(len(train_dataset))]))
+            self.eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}    
 
         self.batch = self.df_train[:self.al_config.initial_sample_size]
         self.batch.reset_index(drop=True, inplace=True)
@@ -91,7 +97,7 @@ class ActiveLearningTrainer():
                         self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
                         # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
                         # Also requires different seeds, otherwise it samples the same initial weights
-                        self._reinit_linear_layer(self.base_model.score, self.base_model.config, seed)
+                        self._reinit_linear_layer(self.base_model.score, self.script_args.score_init_std, seed)
                         seed += 1   
 
 
@@ -146,6 +152,7 @@ class ActiveLearningTrainer():
                     initial_sample_size=args.initial_sample_size,
                     ensemble_size=args.ensemble_size,
                     active_batch_size=args.active_batch_size,
+                    pool_size=args.pool_size,
                     run_name=args.run_name,
                     heuristic=args.heuristic,
                     selection_strategy=args.selection_strategy,
@@ -176,8 +183,8 @@ class ActiveLearningTrainer():
                 bf16=args.bf16,
                 log_level="debug")
 
-    def _reinit_linear_layer(self, module, config, seed):
-        module.weight.data.normal_(mean=0.0, std=config.initializer_range, generator=torch.manual_seed(seed))
+    def _reinit_linear_layer(self, module, score_init_std, seed):
+        module.weight.data.normal_(mean=0.0, std=score_init_std, generator=torch.manual_seed(seed))
         if module.bias is not None:
             module.bias.data.zero_()
 
@@ -199,12 +206,14 @@ class ActiveLearningTrainer():
         avg_ale = aleatoric.mean()
         avg_var = var_predictions.mean()
         acc = compute_ensemble_accuracy(ens_probs)
+        log_likelihood = -log_loss(np.zeros(len(ens_probs['First'])), ens_probs.values, labels=[0, 1])
         logs = { 
             f"ensemble/{mode}_EnsAvgEpistemic": avg_ep, 
             f"ensemble{mode}_EnsAvgPredictive": avg_pred, 
             f"ensemble/{mode}_EnsAvgAleatoric": avg_ale, 
             f"ensemble/{mode}_EnsAvgVariance": avg_var, 
-            f"ensemble/{mode}_EnsAvgAccuracy": acc}
+            f"ensemble/{mode}_EnsAvgAccuracy": acc,
+            f"ensemble/{mode}_LogLikelihood": log_likelihood}
         
         self.callback_handler.on_log(self.al_config, self.state, self.control, logs)
 

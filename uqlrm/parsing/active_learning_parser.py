@@ -8,6 +8,7 @@ class ActiveLearningArguments:
     initial_sample_size: Optional[int] = field(default=64, metadata={"help": "Initial sample size for active learning"})
     ensemble_size: Optional[int] = field(default=8, metadata={"help": "ensemble size"})
     active_batch_size: Optional[int] = field(default=64, metadata={"help": "sample size for each active learning iteration"})
+    pool_size: Optional[int] = field(default=4096, metadata={"help": "sample size for each active learning iteration"})
     steps_per_epoch: Optional[int] = field(default=1, metadata={"help": "how many gradient steps to perform per epoch"})
     run_name: Optional[str] = field(
         default=None, metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."}
@@ -18,6 +19,7 @@ class ActiveLearningArguments:
     selection_strategy: Optional[str] = field(
         default="rank", metadata={"help": "Strategy to select points for active batch, given heuristic scores."}
     )
+    score_init_std: Optional[float] = field(default=0.2, metadata={"help": "ratio of the dataset to consider for faster eval"})
 
 
     # Ensemble Members Arguments
@@ -76,3 +78,5 @@ class ActiveLearningArguments:
     push_predictions_to_hub: Optional[bool] = field(default=False, metadata={"help": "Enable storing predictions from test sets in hub."})
     predictions_dataset_hub: Optional[str] = field(default=None, metadata={"help": "The datasets hub repository to save predictions."})
     save_predictions_steps: Optional[int] = field(default=20, metadata={"help": "the saving predictions frequency"})
+
+    seed: Optional[int] = field(default=42, metadata={"help": "Experiment run seed."})

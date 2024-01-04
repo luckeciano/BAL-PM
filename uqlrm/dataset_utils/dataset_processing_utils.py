@@ -36,8 +36,8 @@ def create_datasets(args, tokenizer, ood=False):
 
     return final_train_dataset, final_valid_dataset, final_test_dataset
 
-def undersample_dataset(dataset, ratio):
-    dataset = dataset.train_test_split(test_size=ratio, seed=42)
+def undersample_dataset(dataset, ratio, seed):
+    dataset = dataset.train_test_split(test_size=ratio, seed=seed)
     return dataset["test"]
 
 class DataFrameDataset(Dataset):
