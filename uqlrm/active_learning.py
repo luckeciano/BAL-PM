@@ -197,7 +197,6 @@ class ActiveLearningTrainer():
                 ensemble_df.append(df)
             except:
                 continue
-        # TODO: Add ensemble args 
         print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
         
         epistemic, predictive, aleatoric, ens_probs, var_predictions, ids = compute_uncertanties(ensemble_df)
@@ -213,7 +212,8 @@ class ActiveLearningTrainer():
             f"ensemble/{mode}_EnsAvgAleatoric": avg_ale, 
             f"ensemble/{mode}_EnsAvgVariance": avg_var, 
             f"ensemble/{mode}_EnsAvgAccuracy": acc,
-            f"ensemble/{mode}_LogLikelihood": log_likelihood}
+            f"ensemble/{mode}_LogLikelihood": log_likelihood,
+            f"ensemble/system/{mode}_PredictionsLoaded": len(ensemble_df)}
         
         self.callback_handler.on_log(self.al_config, self.state, self.control, logs)
 

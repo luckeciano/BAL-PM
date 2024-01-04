@@ -313,7 +313,7 @@ class RewardTrainerWithCustomEval(RewardTrainer):
             if self.args.push_predictions_to_hub:
                 api = HfApi()
                 succeeded = False
-                for _ in range(3): # 3 retries
+                for i in range(3): # 3 retries
                     if succeeded:
                         break
                     try:
@@ -324,9 +324,12 @@ class RewardTrainerWithCustomEval(RewardTrainer):
                             repo_type="dataset",
                         )
                         succeeded = True
-                    except:
+                    except Exception as e:
                         succeeded = False
+                        print(f"Attempt {i+1} failed with error: {str(e)}")
                         time.sleep(20) # Wait 20 seconds until next retry
+                        if i == 2:
+                            print("Operation failed after maximum number of retries.")
 
     def log(self, logs: Dict[str, float]) -> None:
         """
