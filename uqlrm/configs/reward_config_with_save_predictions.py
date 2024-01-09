@@ -16,4 +16,6 @@ class RewardConfigWithSavedPredictions(RewardConfig):
 
     save_predictions_steps: Optional[int] = 25
 
+    predictions_dir: Optional[str] = None
+
 

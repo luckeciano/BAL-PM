@@ -8,7 +8,6 @@ import pandas as pd
 import time
 import numpy as np
 from packaging import version
-from huggingface_hub import HfApi
 
 from transformers import DataCollator, PreTrainedModel, PreTrainedTokenizerBase
 from transformers.integrations.deepspeed import deepspeed_init
@@ -73,6 +72,8 @@ class RewardTrainerWithCustomEval(RewardTrainer):
             peft_config: Optional[Dict] = None
         ):
             self.main_input_name = "id"
+            self.predictions = {}
+            self.run_dir = ""
             super().__init__(model, args, data_collator, train_dataset, eval_dataset, tokenizer, model_init, \
                          compute_metrics, callbacks, optimizers, preprocess_logits_for_metrics, max_length, peft_config)
 
@@ -298,10 +299,11 @@ class RewardTrainerWithCustomEval(RewardTrainer):
         if self.state.global_step % self.args.save_predictions_steps == 0 or self.state.global_step == 1:
             checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
 
-            run_dir = self._get_output_dir(trial=trial)
-            output_dir = os.path.join(run_dir, run_name, checkpoint_folder, metric_key_prefix)
+            output_dir = os.path.join(self.args.predictions_dir, run_name, checkpoint_folder, metric_key_prefix)
             df = pd.DataFrame(predictions, columns=["First", "Second"])
             df['id'] = indices.reshape(-1, 1)
+            
+            self.predictions[metric_key_prefix] = df
 
             # Create the folder if it doesn't exist
             if not os.path.exists(output_dir):
@@ -309,27 +311,6 @@ class RewardTrainerWithCustomEval(RewardTrainer):
 
             output_filedir=os.path.join(output_dir, "predictions.csv")
             df.to_csv(output_filedir, index=False)
-
-            if self.args.push_predictions_to_hub:
-                api = HfApi()
-                succeeded = False
-                for i in range(3): # 3 retries
-                    if succeeded:
-                        break
-                    try:
-                        api.upload_file(
-                            path_or_fileobj=output_filedir,
-                            path_in_repo=output_filedir,
-                            repo_id=self.args.predictions_dataset_hub,
-                            repo_type="dataset",
-                        )
-                        succeeded = True
-                    except Exception as e:
-                        succeeded = False
-                        print(f"Attempt {i+1} failed with error: {str(e)}")
-                        time.sleep(20) # Wait 20 seconds until next retry
-                        if i == 2:
-                            print("Operation failed after maximum number of retries.")
 
     def log(self, logs: Dict[str, float]) -> None:
         """

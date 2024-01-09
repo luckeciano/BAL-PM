@@ -3,6 +3,8 @@ from typing import Dict
 from transformers import TrainerCallback, BitsAndBytesConfig
 import torch
 from accelerate import Accelerator
+from huggingface_hub import HfApi
+import time
 
 def print_trainable_parameters(model):
     """
@@ -61,3 +63,24 @@ class EvaluateFirstStepCallback(TrainerCallback):
 class StopCallback(TrainerCallback):
     def on_epoch_end(self, args, state, control, logs=None, **kwargs):
         control.should_training_stop = True
+
+def push_predictions_to_hub(output_filedir, predictions_dataset_hub):
+    api = HfApi()
+    succeeded = False
+    for i in range(3): # 3 retries
+        if succeeded:
+            break
+        try:
+            api.upload_folder(
+                folder_path=output_filedir,
+                path_in_repo=output_filedir,
+                repo_id=predictions_dataset_hub,
+                repo_type="dataset",
+            )
+            succeeded = True
+        except Exception as e:
+            succeeded = False
+            print(f"Attempt {i+1} failed with error: {str(e)}")
+            time.sleep(20) # Wait 20 seconds until next retry
+            if i == 2:
+                print("Operation failed after maximum number of retries.")

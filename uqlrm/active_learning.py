@@ -3,7 +3,7 @@ from reward_modeling import build_reward_model, RewardTrainerWithCustomEval, Rew
 from dataset_utils import create_datasets, undersample_dataset, DataFrameDataset
 from metrics import compute_uncertanties, compute_ensemble_accuracy
 from parsing import ActiveLearningArguments
-from utils import StopCallback
+from utils import StopCallback, push_predictions_to_hub
 import pandas as pd
 import numpy as np
 import torch
@@ -69,10 +69,13 @@ class ActiveLearningTrainer():
 
         # Build Reward Modeling Configs
         self.runs = []
+        self.all_predictions = {}
         for i in range(self.al_config.ensemble_size):
                 self.runs.append(self._build_reward_config(script_args, f"{script_args.run_name}_{i}", self.num_epochs))
+                self.all_predictions[f"{script_args.run_name}_{i}"] = {}
 
         self._check_parameters(self.al_config, self.runs)
+        
 
     def _check_parameters(self, al_config, runs):
         # Assert if the proposed parameters match in the Active Learning Setup
@@ -88,63 +91,70 @@ class ActiveLearningTrainer():
 
     # TODO: Implement option to extend dataset with new points and run more steps
     def train(self):
-          seed = 0
-          for epoch in range(self.num_epochs):
-                # For each model, train separately in the sampled set:
-                for run in self.runs:
+        seed = 0
+        for epoch in range(self.num_epochs):
+            # For each model, train separately in the sampled set:
+            for run in self.runs:
 
-                    if epoch == 0:
-                        self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
-                        # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
-                        # Also requires different seeds, otherwise it samples the same initial weights
-                        self._reinit_linear_layer(self.base_model.score, self.script_args.score_init_std, seed)
-                        seed += 1   
+                if epoch == 0:
+                    self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
+                    # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
+                    # Also requires different seeds, otherwise it samples the same initial weights
+                    self._reinit_linear_layer(self.base_model.score, self.script_args.score_init_std, seed)
+                    seed += 1   
 
 
-                    reward_collator = RewardDataCollatorWithPaddingAndIndices(self.tokenizer, max_length=run.max_length)
+                reward_collator = RewardDataCollatorWithPaddingAndIndices(self.tokenizer, max_length=run.max_length)
 
-                    trainer = RewardTrainerWithCustomEval(
-                        model=self.base_model,
-                        tokenizer=self.tokenizer,
-                        data_collator=reward_collator,
-                        args=run,
-                        train_dataset=self.batch,
-                        eval_dataset=self.eval_sets,
-                        peft_config=self.peft_config,
-                    )
+                trainer = RewardTrainerWithCustomEval(
+                    model=self.base_model,
+                    tokenizer=self.tokenizer,
+                    data_collator=reward_collator,
+                    args=run,
+                    train_dataset=self.batch,
+                    eval_dataset=self.eval_sets,
+                    peft_config=self.peft_config,
+                )
 
-                    trainer.add_callback(StopCallback())
+                trainer.add_callback(StopCallback())
 
-                    trainer.train(resume_from_checkpoint=(epoch != 0))
+                trainer.train(resume_from_checkpoint=(epoch != 0))
 
-                    global_step = trainer.state.global_step      
+                global_step = trainer.state.global_step 
+            
+                self.all_predictions[run.run_name][global_step] = trainer.predictions
+                self.run_dir = trainer.run_dir
 
-                self.state.global_step = global_step
-                # Generate Ensemble Predictions and Eval/Wandb
-                for mode in self.eval_sets.keys():
-                    if mode == "train":
-                        acquisition_fn = self._eval_ensemble(mode, global_step, return_uncertainty=True)
-                    else:
-                        self._eval_ensemble(mode, global_step)
+            self.state.global_step = global_step
+            # Generate Ensemble Predictions and Eval/Wandb
+            for mode in self.eval_sets.keys():
+                if mode == "train":
+                    acquisition_fn = self._eval_ensemble(mode, global_step, self.all_predictions, return_uncertainty=True)
+                else:
+                    self._eval_ensemble(mode, global_step, self.all_predictions)
 
-                # Select new batch points based on uncertainty
-                nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, \
-                                        self.al_config.active_batch_size, self.df_train, self.al_config.selection_strategy).to_frame()
-                
-                # Merge with current df and remove points from it
-                self.batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
-                self.batch = DataFrameDataset(self.batch)
+            # Select new batch points based on uncertainty
+            nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, \
+                                    self.al_config.active_batch_size, self.df_train, self.al_config.selection_strategy).to_frame()
+            
+            # Merge with current df and remove points from it
+            self.batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
+            self.batch = DataFrameDataset(self.batch)
 
-                # Remove these rows from initial dataset
-                all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
-                self.df_train = all_rows[all_rows['_merge'] == 'left_only']
-                self.df_train = self.df_train.drop(columns=['_merge'])
+            # Remove these rows from initial dataset
+            all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
+            self.df_train = all_rows[all_rows['_merge'] == 'left_only']
+            self.df_train = self.df_train.drop(columns=['_merge'])
 
-                del self.base_model, self.tokenizer
-                # For each epoch, re-instatiate the base_model after deleting previous instance
-                # The goal is to clean the previous computational graph and prevend headaches related to continuously loading new checkpoints
-                self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
-                
+            del self.base_model, self.tokenizer
+            # For each epoch, re-instatiate the base_model after deleting previous instance
+            # The goal is to clean the previous computational graph and prevend headaches related to continuously loading new checkpoints
+            self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
+    
+        # Upload Predictions to Hub
+        if self.script_args.push_predictions_to_hub:
+            full_dir = os.path.join(self.script_args.output_dir, "predictions")
+            push_predictions_to_hub(full_dir, self.script_args.predictions_dataset_hub)
         
 
     def _build_active_learning_config(self, args) -> ActiveLearningConfig:
@@ -178,6 +188,7 @@ class ActiveLearningTrainer():
                 run_name=run_name,
                 push_predictions_to_hub=args.push_predictions_to_hub,
                 predictions_dataset_hub=args.predictions_dataset_hub,
+                predictions_dir=os.path.join(args.output_dir, "predictions"),
                 save_predictions_steps=args.save_predictions_steps,
                 save_total_limit=args.save_total_limit,
                 bf16=args.bf16,
@@ -188,15 +199,10 @@ class ActiveLearningTrainer():
         if module.bias is not None:
             module.bias.data.zero_()
 
-    def _eval_ensemble(self, mode, global_step, return_uncertainty=False):
+    def _eval_ensemble(self, mode, global_step, all_preds, return_uncertainty=False):
         ensemble_df = []
         for run in self.runs:
-            datafile = os.path.join(self.script_args.output_dir, run.run_name, run.run_name, f"checkpoint-{global_step}", f"eval_{mode}", "predictions.csv")
-            try: 
-                df = load_dataset("luckeciano/uqlrm_predictions", data_files=datafile)['train'].to_pandas()
-                ensemble_df.append(df)
-            except:
-                continue
+             ensemble_df.append(all_preds[run.run_name][global_step][f'eval_{mode}'])
         print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
         
         epistemic, predictive, aleatoric, ens_probs, var_predictions, ids = compute_uncertanties(ensemble_df)
