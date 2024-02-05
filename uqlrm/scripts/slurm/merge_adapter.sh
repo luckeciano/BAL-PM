@@ -20,7 +20,7 @@ nvidia-smi
 
 huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
 
-python3 ~/UQLRM/src/scripts/merge_peft_adapter.py \
---adapter_model_name "luckeciano/llama-sft-reddit" \
+python3 ~/UQLRM/uqlrm/scripts/merge_peft_adapter.py \
+--adapter_model_name "luckeciano/llama7b-reward-model-reddit" \
 --base_model_name "meta-llama/Llama-2-7b-hf" \
---output_name "luckeciano/merged-llama-sft-reddit"
+--output_name "luckeciano/merged-llama7b-reward-model-reddit"

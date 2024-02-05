@@ -29,11 +29,12 @@ python ~/UQLRM/uqlrm/reward_model_training.py \
 --run_name "$1_$2" \
 --dataset_name "luckeciano/learning-to-summarize" \
 --per_device_eval_batch_size 64 \
---model_name "luckeciano/gpt2-sft-reddit" \
+--model_name "CarperAI/openai_summarize_tldr_sft" \
+--tokenizer_name "EleutherAI/gpt-j-6B" \
 --quantization_scheme "none" \
 --push_predictions_to_hub True \
 --predictions_dataset_hub "luckeciano/uqlrm_predictions" \
---use_peft False \
+--use_peft True \
 --eval_steps 100 \
 --logging_steps 100 \
 --save_steps 1000 \
@@ -43,6 +44,6 @@ python ~/UQLRM/uqlrm/reward_model_training.py \
 --num_train_epochs 10 \
 --undersample_eval True \
 --undersample_ratio 0.1  \
---learning_rate 1.41e-5 \
+--learning_rate 3e-4 \
 --bf16 True \
 --seed 42

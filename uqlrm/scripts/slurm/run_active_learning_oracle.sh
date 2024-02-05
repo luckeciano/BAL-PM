@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=24
 #SBATCH --gres=gpu:a100:1
-#SBATCH --job-name="reward_ft"
+#SBATCH --job-name="active_learning"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
 
@@ -22,27 +22,34 @@ nvidia-smi
 
 huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
 
-echo $1_$2
+echo $1
 
-python ~/UQLRM/uqlrm/reward_model_training.py \
---output_dir /scratch/lucelo/sft/results/$1_$2 \
---run_name "$1_$2" \
---dataset_name "luckeciano/learning-to-summarize" \
+python ~/UQLRM/uqlrm/active_learning.py \
+--output_dir /scratch/lucelo/active_learning/results/$1 \
+--run_name "$1" \
+--dataset_name "luckeciano/oracle-reward-reddit" \
 --per_device_eval_batch_size 64 \
 --model_name "luckeciano/gpt2-sft-reddit" \
 --quantization_scheme "none" \
 --push_predictions_to_hub True \
 --predictions_dataset_hub "luckeciano/uqlrm_predictions" \
 --use_peft False \
---eval_steps 100 \
---logging_steps 100 \
---save_steps 1000 \
---save_predictions_steps 100 \
---gradient_accumulation_steps 1 \
---per_device_train_batch_size 64 \
---num_train_epochs 10 \
 --undersample_eval True \
 --undersample_ratio 0.1  \
---learning_rate 1.41e-5 \
+--initial_sample_size 320 \
+--ensemble_size 8 \
+--active_batch_size 320 \
+--per_device_train_batch_size 64 \
+--save_predictions_steps 1 \
+--gradient_accumulation_steps 1 \
+--heuristic "random" \
+--selection_strategy "rank" \
+--pool_size 12258 \
+--seed 66 \
+--score_init_std 0.2 \
+--learning_rate 1.41e-4 \
 --bf16 True \
---seed 42
+--train_split "train_dedup" \
+--test_split "test_dedup" \
+--valid_split "eval_dedup" \
+--ood_split "ood_dedup" \

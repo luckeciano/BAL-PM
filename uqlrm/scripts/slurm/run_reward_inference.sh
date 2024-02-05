@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=24
 #SBATCH --gres=gpu:a100:1
-#SBATCH --job-name="reward_ft"
+#SBATCH --job-name="rw_infer_llama"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
 
@@ -24,25 +24,20 @@ huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
 
 echo $1_$2
 
-python ~/UQLRM/uqlrm/reward_model_training.py \
---output_dir /scratch/lucelo/sft/results/$1_$2 \
+python ~/UQLRM/uqlrm/reward_model_inference.py \
+--output_dir /scratch/lucelo/rw_infer/results/$1_$2 \
 --run_name "$1_$2" \
 --dataset_name "luckeciano/learning-to-summarize" \
---per_device_eval_batch_size 64 \
---model_name "luckeciano/gpt2-sft-reddit" \
+--per_device_train_batch_size 16 \
+--per_device_eval_batch_size 16 \
+--gradient_accumulation_steps 1 \
+--model_name "/users/lucelo/gpt2-xl-reward-model" \
+--tokenizer_name "/users/lucelo/gpt2-xl-reward-model" \
+--inference True \
 --quantization_scheme "none" \
 --push_predictions_to_hub True \
 --predictions_dataset_hub "luckeciano/uqlrm_predictions" \
---use_peft False \
---eval_steps 100 \
---logging_steps 100 \
---save_steps 1000 \
---save_predictions_steps 100 \
---gradient_accumulation_steps 1 \
---per_device_train_batch_size 64 \
---num_train_epochs 10 \
 --undersample_eval True \
---undersample_ratio 0.1  \
---learning_rate 1.41e-5 \
---bf16 True \
---seed 42
+--undersample_ratio 0.1 \
+--seed 42 
+
