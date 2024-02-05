@@ -13,17 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from tqdm import tqdm
+import os
+import pandas as pd
 from transformers import HfArgumentParser
 
 from dataset_utils import dataset_process_factory
 from dataset_utils.dataset_processing_utils import create_datasets, undersample_dataset
 
-from utils import print_trainable_parameters, EvaluateFirstStepCallback, push_predictions_to_hub
+from utils import push_predictions_to_hub
 from reward_modeling import (
-    RewardDataCollatorWithPaddingAndIndices, RewardTrainerWithCustomEval, build_reward_model)
+    RewardDataCollatorWithPaddingAndIndices, RewardInferencer, build_reward_model)
 from configs import RewardConfigWithSavedPredictions
 from parsing.reward_modeling_parser import RewardModelingArguments
-import os
 
 
 tqdm.pandas()
@@ -47,13 +48,11 @@ reward_config = RewardConfigWithSavedPredictions(
             evaluation_strategy=script_args.eval_strategy,
             eval_steps=script_args.eval_steps,
             save_steps=script_args.save_steps,
-            save_total_limit=script_args.save_total_limit,
             max_length=script_args.seq_length,
             run_name=script_args.run_name,
             push_predictions_to_hub=script_args.push_predictions_to_hub,
             predictions_dataset_hub=script_args.predictions_dataset_hub,
             save_predictions_steps=script_args.save_predictions_steps,
-            lr_scheduler_type=script_args.lr_scheduler_type,
             predictions_dir=os.path.join(script_args.output_dir, "predictions"),
             bf16=script_args.bf16,
             log_level="debug")
@@ -72,20 +71,23 @@ if script_args.undersample_eval:
 else:
     eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
 
-# Adding a shuffled version of the test dataset
-final_shuffled_test_dataset = eval_sets['test'].map(lambda example:
+if script_args.undersample_eval:
+    eval_sets = {"train": undersampled_train, "ood": ood_dataset}
+
+final_shuffled_test_dataset = eval_sets['train'].map(lambda example:
     dataset_process_factory.shuffle_tokens(example, tokenizer, reward_config.max_length),
     batched=True,
     num_proc=4,
 )
 
 eval_sets['shuffled'] = final_shuffled_test_dataset
+    
 
 # Define Reward Collator with Indices:
 reward_collator = RewardDataCollatorWithPaddingAndIndices(tokenizer, max_length=reward_config.max_length)
 
 # Define the Trainer
-trainer = RewardTrainerWithCustomEval(
+trainer = RewardInferencer(
     model=model,
     tokenizer=tokenizer,
     data_collator=reward_collator,
@@ -96,13 +98,38 @@ trainer = RewardTrainerWithCustomEval(
     #bf16=True
 )
 
-trainer.add_callback(EvaluateFirstStepCallback())
+all_features = []
+all_metadata = []
 
-print_trainable_parameters(model)
+for eval_dataset_name, eval_dataset in trainer.eval_dataset.items():
+    loss, features = trainer.inference(eval_dataset, return_features=True)
+    
+    all_features.extend(features['features_chosen'])
+    all_metadata.extend([['chosen', f'{features["rewards_chosen"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_chosen"]))])
+    
+    all_features.extend(features['features_rejected'])
+    all_metadata.extend([['rejected', f'{features["rewards_rejected"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_rejected"]))])
 
-trainer.train()
+
+ft_df = pd.DataFrame(all_features).round(4)
+all_metadata_df = pd.DataFrame(all_metadata)
+
+ft_df.to_csv(f'features_{script_args.run_name}.tsv', sep='\t', index=False, header=False)
+all_metadata_df.to_csv(f'metadata_{script_args.run_name}.tsv', sep='\t', index=False, header=['Preference', 'RewardScore', 'Model', 'Dataset', 'id'])
+
+    
+    
 
 # Upload Predictions to Hub
 if script_args.push_predictions_to_hub:
+    eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
+
+    for eval_dataset_name, eval_dataset in eval_sets.items():
+        dataset_metrics = trainer.evaluate(
+            eval_dataset=eval_dataset,
+            metric_key_prefix=f"eval_{eval_dataset_name}",
+        )
+
     full_dir = os.path.join(script_args.output_dir, "predictions")
     push_predictions_to_hub(full_dir, script_args.predictions_dataset_hub)
+    print("done")

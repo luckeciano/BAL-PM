@@ -36,7 +36,42 @@ def compute_uncertanties(dfs):
     avg_df = pd.concat([avg_first, avg_second, avg_entropy, var_first, final_df['id']], axis=1)
     avg_df.columns = ['First', 'Second', 'Aleatoric Uncertainty', 'Variance', 'id']
 
+    #avg_df['EPIG'] = compute_epig(avg_df, dfs)
     
     avg_df['Predictive Uncertainty'] = compute_entropy(avg_df[['First', 'Second']])
     avg_df['Epistemic Uncertainty'] = avg_df['Predictive Uncertainty'] - avg_df['Aleatoric Uncertainty']
     return avg_df['Epistemic Uncertainty'], avg_df['Predictive Uncertainty'], avg_df['Aleatoric Uncertainty'], avg_df[['First', 'Second']], avg_df['Variance'], avg_df['id']
+
+def compute_epig(avg_df, dfs):
+    epig_df = pd.concat([avg_df] + dfs, axis=1)
+    return epig_df.apply(lambda x: epig(x, epig_df, len(dfs)), axis=1)
+
+def epig(x, epig_df, ens_size):
+    M = 1000
+    x_star = epig_df.sample(n=M, axis=0)
+    epig_sample = x_star.apply(lambda row: compute_epig_sample(row, x, ens_size), axis=1)
+    return epig_sample.mean()
+
+def compute_epig_sample(x_star, x, ens_size):
+
+    # Sample y_star
+    x_star['y'] = np.random.choice(['First', 'Second'], p=[x_star['First'], 1- x_star['First']])
+
+    # Sample y
+    x['y'] =  np.random.choice(['First', 'Second'], p=[x['First'], 1 - x['First']])
+
+    avg_p_x_star = x_star[x_star['y']]
+    avg_p_x = x[x['y']]
+    products = None
+    for i in range(ens_size):
+        p_x_star = x_star[f"{x_star['y']}_{i}"]
+        p_x = x[f"{x['y']}_{i}"]
+        if products is None:
+            products = p_x * p_x_star
+        else:
+            products = products + p_x * p_x_star
+    
+    final_products = products / ens_size
+
+    epig_sample = np.log(final_products) - np.log(avg_p_x) - np.log(avg_p_x_star)
+    return epig_sample

@@ -24,6 +24,7 @@ class ActiveLearningArguments:
 
     # Ensemble Members Arguments
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
+    tokenizer_name: Optional[str] = field(default="gpt2", metadata={"help": "the tokenizer name"})
     log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
     run_name: Optional[str] = field(default="active_learning_test", metadata={"help": "The experiment name"})
 

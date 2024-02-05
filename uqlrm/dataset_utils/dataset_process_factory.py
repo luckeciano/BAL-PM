@@ -1,6 +1,36 @@
 # Tokenize chosen/rejected pairs of inputs
 # Adapt this section to your needs for custom datasets
 from sklearn.utils import shuffle
+from typing import Literal
+import json
+
+
+def process_reddit_sft(example, tokenizer, seq_len):
+    final_examples = {
+        "text": []
+    }
+    
+    for post, chosen in zip(example['post'], example["chosen_summary"]):
+        final_post = f"Post: {post}"
+        final_chosen = f"\nSummary: {chosen}"
+        final_examples["text"].append(final_post + final_chosen)
+
+    return final_examples
+
+def process_ultrafeedback_sft(examples, tokenizer, max_len):
+    new_examples = {
+        "text": []
+    }
+
+    for post, chosen, rejected, messages,  id in zip(examples['prompt'], examples["chosen"], examples["rejected"], examples["messages"], examples["id"]):
+        #TODO FIX THIS
+        messages_dict = json.loads(messages.replace("\'", "\""))
+        example = {'post': post, 'chosen': chosen, 'rejected': rejected, 'messages': messages_dict}
+        
+        example = apply_chat_template(example, tokenizer, "sft")
+
+        new_examples["text"].append(example['text'])
+    return example
 
 def chosen_rejected_preprocess_function(examples, tokenizer, max_len):
     new_examples = {
@@ -81,3 +111,83 @@ def shuffle_tokens(examples, tokenizer, max_len):
 
     return new_examples
         
+
+def ultrafeedback_preprocess_function(examples, tokenizer, max_len):
+    new_examples = {
+        "input_ids_chosen": [],
+        "attention_mask_chosen": [],
+        "input_ids_rejected": [],
+        "attention_mask_rejected": [],
+        "id": []
+    }
+
+    for post, chosen, rejected, id in zip(examples['prompt'], examples["chosen"], examples["rejected"], examples["id"]):
+        example = {'post': post, 'chosen': chosen, 'rejected': rejected}
+        example = apply_chat_template(example, tokenizer, "rm")
+
+        final_chosen = example['text_chosen']
+        final_rejected = example['text_rejected']
+        tokenized_chosen = tokenizer(final_chosen)
+        tokenized_rejected = tokenizer(final_rejected)
+
+        tokenized_chosen = tokenizer(chosen)
+        tokenized_rejected = tokenizer(rejected)
+
+        new_examples["input_ids_chosen"].append(tokenized_chosen["input_ids"])
+        new_examples["attention_mask_chosen"].append(tokenized_chosen["attention_mask"])
+        new_examples["input_ids_rejected"].append(tokenized_rejected["input_ids"])
+        new_examples["attention_mask_rejected"].append(tokenized_rejected["attention_mask"])
+        new_examples["id"].append(id)
+
+
+def apply_chat_template(
+    example,
+    tokenizer,
+    task: Literal["sft", "generation", "rm", "dpo"],
+):
+    if task in ["sft", "generation"]:
+        messages = example["messages"]
+        # We add an empty system message if there is none
+        if messages[0]["role"] != "system":
+            messages.insert(0, {"role": "system", "content": ""})
+        example["text"] = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True if task == "generation" else False
+        )
+    elif task == "rm":
+        if all(k in example.keys() for k in ("chosen", "rejected")):
+            chosen_messages = example["chosen"]
+            rejected_messages = example["rejected"]
+            # We add an empty system message if there is none
+            if chosen_messages[0]["role"] != "system":
+                chosen_messages.insert(0, {"role": "system", "content": ""})
+            if rejected_messages[0]["role"] != "system":
+                rejected_messages.insert(0, {"role": "system", "content": ""})
+            example["text_chosen"] = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
+            example["text_rejected"] = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
+        else:
+            raise ValueError(
+                f"Could not format example as dialogue for `rm` task! Require `[chosen, rejected]` keys but found {list(example.keys())}"
+            )
+    elif task == "dpo":
+        if all(k in example.keys() for k in ("chosen", "rejected")):
+            # For DPO, the inputs are triples of (prompt, chosen, rejected), where `chosen` and `rejected` are the final turn of a dialogue
+            # We therefore need to extract the N-1 turns to form the prompt
+            prompt_messages = example["chosen"][:-1]
+            # Prepend a system message if the first message is not a system message
+            if example["chosen"][0]["role"] != "system":
+                prompt_messages.insert(0, {"role": "system", "content": ""})
+            # Now we extract the final turn to define chosen/rejected responses
+            chosen_messages = example["chosen"][-1:]
+            rejected_messages = example["rejected"][-1:]
+            example["text_chosen"] = tokenizer.apply_chat_template(chosen_messages, tokenize=False)
+            example["text_rejected"] = tokenizer.apply_chat_template(rejected_messages, tokenize=False)
+            example["text_prompt"] = tokenizer.apply_chat_template(prompt_messages, tokenize=False)
+        else:
+            raise ValueError(
+                f"Could not format example as dialogue for `dpo` task! Require `[chosen, rejected]` keys but found {list(example.keys())}"
+            )
+    else:
+        raise ValueError(
+            f"Task {task} not supported, please ensure that the provided task is one of {['sft', 'generation', 'rm', 'dpo']}"
+        )
+    return example

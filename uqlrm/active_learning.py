@@ -231,7 +231,8 @@ class ActiveLearningTrainer():
     
     def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool, selection_strategy): 
         if heuristic == 'random':
-            next_batch_ids = current_pool.sample(n = batch_size)
+            pool_size = len(current_pool)
+            next_batch_ids = current_pool.sample(n = min(batch_size, pool_size))
         else:
             df = acquisition_fn[heuristic]
             ids = acquisition_fn['id']

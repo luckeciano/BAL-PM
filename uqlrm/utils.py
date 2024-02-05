@@ -6,6 +6,11 @@ from accelerate import Accelerator
 from huggingface_hub import HfApi
 import time
 
+
+def softmax(x, temperature=0.5):
+    e_x = np.exp(x / temperature)
+    return e_x / e_x.sum(axis=0)
+
 def print_trainable_parameters(model):
     """
     Prints the number of trainable parameters in the model.

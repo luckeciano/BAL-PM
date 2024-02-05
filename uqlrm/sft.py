@@ -7,6 +7,8 @@ from utils import print_trainable_parameters
 import torch
 
 from datasets import load_dataset
+from dataset_utils import dataset_process_factory, process_and_filter_dataset
+from dataset_utils.dataset_processing_utils import undersample_dataset
 from peft import AutoPeftModelForCausalLM, LoraConfig
 from accelerate import Accelerator
 from transformers import AutoModelForCausalLM, AutoTokenizer, \
@@ -31,8 +33,10 @@ class ScriptArguments:
 
     dataset_name: Optional[str] = field(default="webis/tldr-17", metadata={"help": "the dataset name"})
     dataset_text_field: Optional[str] = field(default="normalizedBody", metadata={"help": "Dataset text column name"})
-    split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
+    train_split: Optional[str] = field(default="train", metadata={"help": "the train split to use"})
+    valid_split: Optional[str] = field(default="valid1", metadata={"help": "the validation split to use"})
     streaming: Optional[bool] = field(default=False, metadata={"help": "whether to stream the dataset"})
+    preprocess_fn: Optional[str] = field(default="process_reddit_sft", metadata={"help": "dataset preprocess function"})
     size_valid_set: Optional[int] = field(default=4000, metadata={"help": "the size of the validation set"})
     test_split_size: Optional[float] = field(default=0.005, metadata={"help": "size of test split"})
     shuffle_buffer: Optional[int] = field(default=5000, metadata={"help": "the shuffle buffer size"})
@@ -54,6 +58,9 @@ class ScriptArguments:
     group_by_length: Optional[bool] = field(default=False, metadata={"help": "whether to group by length"})
     packing: Optional[bool] = field(default=True, metadata={"help": "whether to use packing for SFTTrainer"})
 
+    undersample_eval: Optional[bool] = field(default=False, metadata={"help": "whether to undersample eval datasets for faster evaluation"})
+    undersample_ratio: Optional[float] = field(default=0.1, metadata={"help": "ratio of the dataset to consider for faster eval"})
+
     use_peft: Optional[bool] = field(default=True, metadata={"help": "Wether to use PEFT or not to train adapters"})
     peft_lora_r: Optional[int] = field(default=8, metadata={"help": "the r parameter of the LoRA adapters"})
     peft_lora_alpha: Optional[int] = field(default=16, metadata={"help": "the alpha parameter of the LoRA adapters"})
@@ -71,6 +78,7 @@ class ScriptArguments:
     output_dir: Optional[str] = field(default="./results", metadata={"help": "the output directory"})
     log_freq: Optional[int] = field(default=1, metadata={"help": "the logging frequency"})
 
+    seed: Optional[int] = field(default=42, metadata={"help": "Experiment run seed."})
 
 parser = HfArgumentParser(ScriptArguments)
 script_args = parser.parse_args_into_dataclasses()[0]
@@ -84,6 +92,7 @@ def chars_token_ratio(dataset, tokenizer, nb_examples=400):
     """
     total_characters, total_tokens = 0, 0
     for _, example in tqdm(zip(range(nb_examples), iter(dataset)), total=nb_examples):
+        
         text = prepare_sample_text(example)
         total_characters += len(text)
         if tokenizer.is_fast:
@@ -101,7 +110,6 @@ def prepare_sample_text(example):
 def create_datasets(tokenizer, args):
     dataset = load_dataset(
         args.dataset_name,
-        split=args.split,
         #use_auth_token=True,
         num_proc=args.num_workers if not args.streaming else None,
         streaming=args.streaming,
@@ -111,10 +119,30 @@ def create_datasets(tokenizer, args):
         valid_data = dataset.take(args.size_valid_set)
         train_data = dataset.skip(args.size_valid_set)
         train_data = train_data.shuffle(buffer_size=args.shuffle_buffer, seed=None)
+    elif args.valid_split is not None:
+        train_data = dataset[args.train_split]
+        valid_data = dataset[args.valid_split]
+        if script_args.undersample_eval:
+            valid_data = undersample_dataset(valid_data, script_args.undersample_ratio, seed=script_args.seed)
+
+        train_data = train_data.map(lambda example:
+            getattr(dataset_process_factory, script_args.preprocess_fn)(example, tokenizer, script_args.seq_length),
+            batched=True,
+            num_proc=4,
+        )
+
+        valid_data = valid_data.map(lambda example:
+            getattr(dataset_process_factory, script_args.preprocess_fn)(example, tokenizer, script_args.seq_length),
+            batched=True,
+            num_proc=4,
+        )
+        print(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
     else:
+        dataset = dataset[args.train_split]
         dataset = dataset.train_test_split(test_size=args.test_split_size, seed=None)
         train_data = dataset["train"]
         valid_data = dataset["test"]
+        print("Splitting dataset into train/test splits...")
         print(f"Size of the train set: {len(train_data)}. Size of the validation set: {len(valid_data)}")
 
     chars_per_token = chars_token_ratio(train_data, tokenizer)

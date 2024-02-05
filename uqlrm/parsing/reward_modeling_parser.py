@@ -4,6 +4,7 @@ from typing import Optional, List
 @dataclass
 class RewardModelingArguments:
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
+    tokenizer_name: Optional[str] = field(default="gpt2", metadata={"help": "the tokenizer name"})
     log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
     run_name: Optional[str] = field(default="rwft_opt350", metadata={"help": "The experiment name"})
 
@@ -29,6 +30,7 @@ class RewardModelingArguments:
     eval_steps: Optional[int] = field(default=1000, metadata={"help": "frequency of validation eval"})
     eval_strategy: Optional[str] = field(default="steps", metadata={"help": "evaluation strategy"})
     save_steps: Optional[int] = field(default=5000, metadata={"help": "the saving frequency"})
+    save_total_limit: Optional[int] = field(default=1, metadata={"help": "Max number of checkpoints per member."})
     per_device_train_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device train batch size"})
     per_device_eval_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device eval batch size"})
     gradient_accumulation_steps: Optional[int] = field(default=16, metadata={"help": "the gradient accumulation steps"})
@@ -57,3 +59,7 @@ class RewardModelingArguments:
     push_predictions_to_hub: Optional[bool] = field(default=False, metadata={"help": "Enable storing predictions from test sets in hub."})
     predictions_dataset_hub: Optional[str] = field(default=None, metadata={"help": "The datasets hub repository to save predictions."})
     save_predictions_steps: Optional[int] = field(default=20, metadata={"help": "the saving predictions frequency"})
+
+    seed: Optional[int] = field(default=42, metadata={"help": "Experiment run seed."})
+    
+    inference: Optional[bool] = field(default=False, metadata={"help": "whether it is running inference only"})
