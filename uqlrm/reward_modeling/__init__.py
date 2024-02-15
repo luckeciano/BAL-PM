@@ -2,3 +2,5 @@ from .reward_collator import RewardDataCollatorWithPadding, RewardDataCollatorWi
 from .reward_trainer import RewardTrainerWithCustomEval
 from .reward_inferencer import RewardInferencer
 from .reward_model import build_reward_model
+from .big_ensemble_reward_trainer import AdapterEnsembleRewardTrainer
+from .variational_reward_trainer import VariationalRewardTrainer
