@@ -15,6 +15,7 @@
 from tqdm import tqdm
 import os
 import pandas as pd
+import numpy as np
 from transformers import HfArgumentParser
 
 from dataset_utils import dataset_process_factory
@@ -67,14 +68,17 @@ if script_args.undersample_eval:
     undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio, seed=script_args.seed)
     undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio, seed=script_args.seed)
     undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio, seed=script_args.seed)
-    eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": ood_dataset}
+    undersampled_ood = undersample_dataset(ood_dataset, script_args.undersample_ratio, seed=script_args.seed)
+    eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": undersampled_ood}
 else:
     eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
 
-if script_args.undersample_eval:
-    eval_sets = {"train": undersampled_train, "ood": ood_dataset}
+# if script_args.undersample_eval:
+#     eval_sets = {"train": undersampled_train, "ood": ood_dataset}
 
-final_shuffled_test_dataset = eval_sets['train'].map(lambda example:
+undersampled_train = undersample_dataset(train_dataset, ratio=0.03, seed=script_args.seed)
+
+final_shuffled_test_dataset = undersampled_train.map(lambda example:
     dataset_process_factory.shuffle_tokens(example, tokenizer, reward_config.max_length),
     batched=True,
     num_proc=4,
@@ -101,21 +105,28 @@ trainer = RewardInferencer(
 all_features = []
 all_metadata = []
 
+#TODO: Organize this inference code
 for eval_dataset_name, eval_dataset in trainer.eval_dataset.items():
     loss, features = trainer.inference(eval_dataset, return_features=True)
+
+    fts = np.concatenate((features['features_chosen'], features['features_rejected']), axis=1)
+    ft_df = pd.DataFrame(fts).round(6)
+    ft_df['id'] = features['id']
+    ft_df = ft_df[['id'] + [col for col in ft_df.columns if col != 'id']]
+    ft_df.to_csv(f'features_{eval_dataset_name}_{script_args.run_name}.csv', index=False, header=True)
     
-    all_features.extend(features['features_chosen'])
-    all_metadata.extend([['chosen', f'{features["rewards_chosen"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_chosen"]))])
+    # all_features.extend(features['features_chosen'])
+    # all_metadata.extend([['chosen', f'{features["rewards_chosen"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_chosen"]))])
     
-    all_features.extend(features['features_rejected'])
-    all_metadata.extend([['rejected', f'{features["rewards_rejected"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_rejected"]))])
+    # all_features.extend(features['features_rejected'])
+    # all_metadata.extend([['rejected', f'{features["rewards_rejected"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_rejected"]))])
 
 
-ft_df = pd.DataFrame(all_features).round(4)
-all_metadata_df = pd.DataFrame(all_metadata)
+# ft_df = pd.DataFrame(all_features).round(4)
+# all_metadata_df = pd.DataFrame(all_metadata)
 
-ft_df.to_csv(f'features_{script_args.run_name}.tsv', sep='\t', index=False, header=False)
-all_metadata_df.to_csv(f'metadata_{script_args.run_name}.tsv', sep='\t', index=False, header=['Preference', 'RewardScore', 'Model', 'Dataset', 'id'])
+# ft_df.to_csv(f'features_{script_args.run_name}.tsv', sep='\t', index=False, header=False)
+# all_metadata_df.to_csv(f'metadata_{script_args.run_name}.tsv', sep='\t', index=False, header=['Preference', 'RewardScore', 'Model', 'Dataset', 'id'])
 
     
     
