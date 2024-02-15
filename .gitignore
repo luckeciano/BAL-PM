@@ -3,6 +3,7 @@
 wandb
 results
 *.csv
+*.tsv
 *.jpg
 *.svg
 *.eps
