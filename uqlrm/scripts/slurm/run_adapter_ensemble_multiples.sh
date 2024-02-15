@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=24
 #SBATCH --gres=gpu:a100:1
-#SBATCH --job-name="rw_infer_llama"
+#SBATCH --job-name="vpo_mini"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
 
@@ -22,22 +22,28 @@ nvidia-smi
 
 huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
 
+SEED=$2
+RANDOM=$SEED
+
+
+
 echo $1_$2
 
-python ~/UQLRM/uqlrm/reward_model_inference.py \
---output_dir /scratch/lucelo/rw_infer/results/$1_$2 \
---run_name "$1_$2" \
---dataset_name "luckeciano/learning-to-summarize" \
---per_device_train_batch_size 32 \
---per_device_eval_batch_size 32 \
---gradient_accumulation_steps 1 \
---model_name "teknium/OpenHermes-2.5-Mistral-7B" \
---tokenizer_name "teknium/OpenHermes-2.5-Mistral-7B" \
---inference True \
---quantization_scheme "none" \
---push_predictions_to_hub False \
---predictions_dataset_hub "luckeciano/uqlrm_predictions" \
---undersample_eval False \
---undersample_ratio 0.001 \
---seed 42 
+for (( i=1; i<=$3; i++ ))
+do
+  s=$RANDOM
+  python ~/UQLRM/uqlrm/adapter_ensemble_reward_training.py \
+    --output_dir /scratch-ssd/lucelo/mini_vpo/results/$1_$s \
+    --run_name "$1_$s" \
+    --dataset_name luckeciano/reddit-features-hermes \
+    --per_device_train_batch_size 32 \
+    --per_device_eval_batch_size 32 \
+    --learning_rate 3e-5 \
+    --push_predictions_to_hub True \
+    --bf16 True \
+    --weight_init 0.1 \
+    --seed $s & > /dev/null 2>&1 &
+    sleep 40
+done
 
+sleep 18000
