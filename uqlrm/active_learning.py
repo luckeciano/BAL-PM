@@ -1,20 +1,23 @@
 from configs import ActiveLearningConfig, RewardConfigWithSavedPredictions
-from reward_modeling import build_reward_model, RewardTrainerWithCustomEval, RewardDataCollatorWithPaddingAndIndices
-from dataset_utils import create_datasets, undersample_dataset, DataFrameDataset
+from dataset_utils import create_datasets, undersample_dataset, NumPyDataset, DataFrameDataset
 from metrics import compute_uncertanties, compute_ensemble_accuracy
 from parsing import ActiveLearningArguments
 from utils import StopCallback, push_predictions_to_hub
+from factory import RewardModelFactory, DataCollatorFactory, TrainerFactory
+
 import pandas as pd
 import numpy as np
 import torch
-from torch.utils.data import Subset
+import os
+from tqdm import tqdm
+from torch.utils.data import Subset, DataLoader
 from sklearn.utils import shuffle
 from sklearn.metrics import log_loss
-from datasets import load_dataset
-import os
 from transformers.trainer_callback import CallbackHandler, TrainerState, TrainerControl, DefaultFlowCallback
 from transformers.integrations import get_reporting_integration_callbacks
 from transformers import HfArgumentParser
+
+PANDAS_BATCH_SIZE = 2000
 
 class ActiveLearningTrainer():
     r"""
@@ -28,17 +31,22 @@ class ActiveLearningTrainer():
         # Build Active Learning Config
         self.al_config = self._build_active_learning_config(script_args)
 
-        self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
+        self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
 
-        train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, self.tokenizer, ood=True)
-
+        train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, self.tokenizer)
+        
+        full_train_df = train_dataset.to_pandas()
         # Downsample training set to the pool size
         indices = list(range(len(train_dataset)))
         indices = shuffle(indices, random_state=script_args.seed)
         indices = indices[:self.al_config.pool_size]
-        train_dataset = Subset(train_dataset, indices)
+        self.df_train = full_train_df.iloc[indices]
         
-        self.df_train = pd.DataFrame([train_dataset[i] for i in range(len(train_dataset))])
+        train_dataset = NumPyDataset(self.df_train)
+        eval_dataset = NumPyDataset(eval_dataset.to_pandas())
+        test_dataset = NumPyDataset(test_dataset.to_pandas())
+        ood_dataset = NumPyDataset(ood_dataset.to_pandas())
+
 
         if script_args.undersample_eval:
             undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio, script_args.seed)
@@ -49,7 +57,7 @@ class ActiveLearningTrainer():
 
         self.batch = self.df_train[:self.al_config.initial_sample_size]
         self.batch.reset_index(drop=True, inplace=True)
-        self.batch = DataFrameDataset(self.batch)
+        self.batch = NumPyDataset(self.batch)
         self.df_train = self.df_train[self.al_config.initial_sample_size:]
         
         # compute num_epochs based on dataset length and hyperparameters
@@ -75,7 +83,6 @@ class ActiveLearningTrainer():
                 self.all_predictions[f"{script_args.run_name}_{i}"] = {}
 
         self._check_parameters(self.al_config, self.runs)
-        
 
     def _check_parameters(self, al_config, runs):
         # Assert if the proposed parameters match in the Active Learning Setup
@@ -89,6 +96,9 @@ class ActiveLearningTrainer():
         assert rm_config.push_predictions_to_hub, "Push Predictions to Hub must be True for active learning setup"
         assert rm_config.save_predictions_steps == 1, "Save Prediction Steps must happen every evaluation loop (after each epoch)"
 
+        if self.script_args.trainer_type == 'adapters_ensemble_trainer' or self.script_args.trainer_type == 'variational_trainer':
+            assert not rm_config.gradient_checkpointing, "Gradient Checkpointing is not supported for Adapters/Variational Trainers"
+
     # TODO: Implement option to extend dataset with new points and run more steps
     def train(self):
         seed = 0
@@ -97,22 +107,24 @@ class ActiveLearningTrainer():
             for run in self.runs:
 
                 if epoch == 0:
-                    self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
-                    # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
-                    # Also requires different seeds, otherwise it samples the same initial weights
-                    self._reinit_linear_layer(self.base_model.score, self.script_args.score_init_std, seed)
+                    self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
+                    
+                    if script_args.model_type == "finetune_ens":
+                        # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
+                        # Also requires different seeds, otherwise it samples the same initial weights
+                        self._reinit_linear_layer(self.base_model.score, self.script_args.score_init_std, seed)
                     seed += 1   
 
 
-                reward_collator = RewardDataCollatorWithPaddingAndIndices(self.tokenizer, max_length=run.max_length)
+                reward_collator = DataCollatorFactory().create(self.script_args.collator_type)(self.tokenizer, max_length=run.max_length)
 
-                trainer = RewardTrainerWithCustomEval(
+                trainer = TrainerFactory().create(self.script_args.trainer_type)(
                     model=self.base_model,
                     tokenizer=self.tokenizer,
-                    data_collator=reward_collator,
-                    args=run,
+                    collator=reward_collator,
+                    run_args=run,
                     train_dataset=self.batch,
-                    eval_dataset=self.eval_sets,
+                    eval_datasets=self.eval_sets,
                     peft_config=self.peft_config,
                 )
 
@@ -139,7 +151,7 @@ class ActiveLearningTrainer():
             
             # Merge with current df and remove points from it
             self.batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
-            self.batch = DataFrameDataset(self.batch)
+            self.batch = NumPyDataset(self.batch)
 
             # Remove these rows from initial dataset
             all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
@@ -149,7 +161,7 @@ class ActiveLearningTrainer():
             del self.base_model, self.tokenizer
             # For each epoch, re-instatiate the base_model after deleting previous instance
             # The goal is to clean the previous computational graph and prevend headaches related to continuously loading new checkpoints
-            self.base_model, self.tokenizer, self.peft_config = build_reward_model(self.script_args)
+            self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
     
         # Upload Predictions to Hub
         if self.script_args.push_predictions_to_hub:
@@ -192,6 +204,8 @@ class ActiveLearningTrainer():
                 save_predictions_steps=args.save_predictions_steps,
                 save_total_limit=args.save_total_limit,
                 bf16=args.bf16,
+                dataloader_num_workers=args.num_workers,
+                dataloader_pin_memory=args.pin_memory,
                 log_level="debug")
 
     def _reinit_linear_layer(self, module, score_init_std, seed):

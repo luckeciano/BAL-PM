@@ -1,1 +1,2 @@
-from .frozen_backbone_collator import FrozenBackboneCollator
+from .frozen_backbone_collator import FrozenBackboneNumpyCollator
+from .reward_collator import RewardDataCollatorWithPaddingAndIndices
