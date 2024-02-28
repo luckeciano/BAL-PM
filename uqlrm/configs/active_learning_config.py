@@ -28,6 +28,10 @@ class ActiveLearningConfig():
 
     selection_strategy: Optional[str] = "rank"
 
+    dataset_strategy: Optional[str] = "full_labeled_set"
+
+    training_strategy: Optional[str] = "full_retrain"
+
     def to_dict(self):
         return asdict(self)
 

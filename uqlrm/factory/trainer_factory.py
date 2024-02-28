@@ -30,7 +30,7 @@ class TrainerFactory:
             args=run_args,
             train_dataset=train_dataset,
             eval_dataset=eval_datasets,
-            data_collator=collator
+            data_collator=collator,
         )
     
     def _create_variational_trainer(self, model, tokenizer, collator, run_args, train_dataset, eval_datasets, peft_config):

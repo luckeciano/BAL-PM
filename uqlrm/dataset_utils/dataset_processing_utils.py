@@ -54,6 +54,7 @@ class DataFrameDataset(Dataset):
     
 class NumPyDataset(Dataset):
     def __init__(self, df):
+        self.df = df
         self.values = df.values
         self.x = 0
 
@@ -67,3 +68,8 @@ class NumPyDataset(Dataset):
     def __getitems__(self, idx):
         batch =  self.values[idx]
         return batch
+    
+    def shuffle(self):
+        shuffled_df = self.df.sample(frac=1).reset_index(drop=True)
+        self.values = shuffled_df.values
+        self.df = shuffled_df

@@ -372,6 +372,7 @@ class AdapterEnsembleRewardTrainer(RewardTrainer):
         all_features_rejected = []
         all_rewards_chosen = []
         all_rewards_rejected = []
+        all_preferences = []
         all_ids = []
         for step, inputs in tqdm(enumerate(eval_dataloader)):
             inputs = self._prepare_inputs(inputs)
@@ -392,12 +393,15 @@ class AdapterEnsembleRewardTrainer(RewardTrainer):
                 loss = -nn.functional.logsigmoid(rewards_chosen - rewards_rejected - inputs["margin"]).mean()
             else:
                 loss = -nn.functional.logsigmoid(rewards_chosen - rewards_rejected).mean()
+
+            preferences = torch.sigmoid(rewards_chosen - rewards_rejected)
             
 
             all_rewards_chosen.extend(rewards_chosen.cpu().numpy())
             all_rewards_rejected.extend(rewards_rejected.cpu().numpy())
             all_features_chosen.extend(features_chosen.cpu().numpy())
             all_features_rejected.extend(features_rejected.cpu().numpy())
+            all_preferences.extend(preferences.cpu().numpy())
             all_ids.extend(inputs['id'].cpu().numpy())
         if return_features:
             return loss, {
@@ -405,6 +409,7 @@ class AdapterEnsembleRewardTrainer(RewardTrainer):
                 "rewards_rejected": all_rewards_rejected,
                 "features_chosen": all_features_chosen,
                 "features_rejected": all_features_rejected,
+                "preferences": all_preferences,
                 "id": all_ids
             }
         return loss

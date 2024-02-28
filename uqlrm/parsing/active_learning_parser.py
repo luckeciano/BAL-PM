@@ -19,6 +19,12 @@ class ActiveLearningArguments:
     selection_strategy: Optional[str] = field(
         default="rank", metadata={"help": "Strategy to select points for active batch, given heuristic scores."}
     )
+    dataset_strategy: Optional[str] = field(
+        default="full_labeled_set", metadata={"help": "Strategy to build the dataset (e.g., use full dataset, only acquired batch, etc)."}
+    )
+    training_strategy: Optional[str] = field(
+        default="full_retrain", metadata={"help": "How to train your posterior approximation at each epoch"}
+    )
     score_init_std: Optional[float] = field(default=0.2, metadata={"help": "ratio of the dataset to consider for faster eval"})
 
 
@@ -54,12 +60,15 @@ class ActiveLearningArguments:
     seq_length: Optional[int] = field(default=512, metadata={"help": "the sequence length"})
     num_workers: Optional[int] = field(default=4, metadata={"help": "the number of workers"})
     pin_memory: Optional[bool] = field(default=True, metadata={"help": "dataloader pin memory"})
+    ignore_data_skip: Optional[bool] = field(default=False, metadata={"help": "ignore data skip when loading from checkpoint"})
     undersample_eval: Optional[bool] = field(default=False, metadata={"help": "whether to undersample eval datasets for faster evaluation"})
     undersample_ratio: Optional[float] = field(default=0.1, metadata={"help": "ratio of the dataset to consider for faster eval"})
 
     max_steps: Optional[int] = field(default=-1, metadata={"help": "Max gradient steps. Overrides num_train_epochs if set."})
     num_train_epochs: Optional[int] = field(default=1, metadata={"help": "number of epochs"})
-    eval_strategy: Optional[str] = field(default="epoch", metadata={"help": "evaluation strategy"})
+    evaluation_strategy: Optional[str] = field(default="epoch", metadata={"help": "evaluation strategy"})
+    eval_steps: Optional[int] = field(default=100, metadata={"help": "the number of steps between two evaluations"})
+    save_steps: Optional[int] = field(default=100, metadata={"help": "the number of steps between two saves"})
     logging_strategy: Optional[str] = field(default="epoch", metadata={"help": "logging strategy"})
     save_strategy: Optional[str] = field(default="epoch", metadata={"help": "save strategy"})
     save_total_limit: Optional[int] = field(default=1, metadata={"help": "Max number of checkpoints per member."})
@@ -73,6 +82,7 @@ class ActiveLearningArguments:
     group_by_length: Optional[bool] = field(default=False, metadata={"help": "whether to group by length"})
     packing: Optional[bool] = field(default=True, metadata={"help": "whether to use packing for SFTTrainer"})
     bf16: Optional[bool] = field(default=True, metadata={"help": "whether to enable bf16 training"})
+
 
     use_peft: Optional[bool] = field(default=True, metadata={"help": "Wether to use PEFT or not to train adapters"})
     peft_lora_r: Optional[int] = field(default=16, metadata={"help": "the r parameter of the LoRA adapters"})

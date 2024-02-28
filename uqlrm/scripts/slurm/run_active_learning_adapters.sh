@@ -37,14 +37,14 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --undersample_eval False \
 --undersample_ratio 0.1  \
 --initial_sample_size 320 \
---ensemble_size 30 \
+--ensemble_size 5 \
 --active_batch_size 320 \
 --per_device_train_batch_size 32 \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \
 --heuristic "random" \
---selection_strategy "rank" \
---pool_size 4096 \
+--selection_strategy "clustered_rank" \
+--pool_size 92000 \
 --seed 66 \
 --score_init_std 0.02 \
 --learning_rate 3e-5 \
@@ -53,4 +53,11 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --test_split "test" \
 --valid_split "eval" \
 --ood_split "ood" \
---gradient_checkpointing "False" \
+--gradient_checkpointing False  \
+--dataset_strategy "full_labeled_set" \
+--training_strategy "full_retrain" \
+--ignore_data_skip True \
+# --evaluation_strategy "steps" \
+# --save_strategy "steps" \
+# --eval_steps 100 \
+# --save_steps 100 \

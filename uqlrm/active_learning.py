@@ -1,8 +1,8 @@
 from configs import ActiveLearningConfig, RewardConfigWithSavedPredictions
-from dataset_utils import create_datasets, undersample_dataset, NumPyDataset, DataFrameDataset
+from dataset_utils import create_datasets, undersample_dataset, NumPyDataset
 from metrics import compute_uncertanties, compute_ensemble_accuracy
 from parsing import ActiveLearningArguments
-from utils import StopCallback, push_predictions_to_hub
+from utils import StopCallback, EvaluateAfterEpochCallback, push_predictions_to_hub
 from factory import RewardModelFactory, DataCollatorFactory, TrainerFactory
 
 import pandas as pd
@@ -13,9 +13,10 @@ from tqdm import tqdm
 from torch.utils.data import Subset, DataLoader
 from sklearn.utils import shuffle
 from sklearn.metrics import log_loss
-from transformers.trainer_callback import CallbackHandler, TrainerState, TrainerControl, DefaultFlowCallback
+from transformers.trainer_callback import CallbackHandler, TrainerState, TrainerControl, DefaultFlowCallback, EarlyStoppingCallback
 from transformers.integrations import get_reporting_integration_callbacks
 from transformers import HfArgumentParser
+import ast
 
 PANDAS_BATCH_SIZE = 2000
 
@@ -30,6 +31,10 @@ class ActiveLearningTrainer():
 
         # Build Active Learning Config
         self.al_config = self._build_active_learning_config(script_args)
+
+        with open('/users/lucelo/UQLRM/uqlrm/groups_train.txt', 'r') as f:
+            data = f.read()
+            self.groups_dict = ast.literal_eval(data)
 
         self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
 
@@ -99,14 +104,16 @@ class ActiveLearningTrainer():
         if self.script_args.trainer_type == 'adapters_ensemble_trainer' or self.script_args.trainer_type == 'variational_trainer':
             assert not rm_config.gradient_checkpointing, "Gradient Checkpointing is not supported for Adapters/Variational Trainers"
 
-    # TODO: Implement option to extend dataset with new points and run more steps
+        if self.script_args.dataset_strategy == 'full_labeled_set':
+            assert rm_config.ignore_data_skip, "When using full labeled set, ignore Data Skip should be enabled, otherwise batches will be skipped"
+
     def train(self):
         seed = 0
         for epoch in range(self.num_epochs):
             # For each model, train separately in the sampled set:
             for run in self.runs:
 
-                if epoch == 0:
+                if epoch == 0 or self.al_config.training_strategy == "full_retrain":
                     self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
                     
                     if script_args.model_type == "finetune_ens":
@@ -118,6 +125,9 @@ class ActiveLearningTrainer():
 
                 reward_collator = DataCollatorFactory().create(self.script_args.collator_type)(self.tokenizer, max_length=run.max_length)
 
+                # Shuffle Dataset for new training
+                self.batch.shuffle()
+
                 trainer = TrainerFactory().create(self.script_args.trainer_type)(
                     model=self.base_model,
                     tokenizer=self.tokenizer,
@@ -128,30 +138,57 @@ class ActiveLearningTrainer():
                     peft_config=self.peft_config,
                 )
 
-                trainer.add_callback(StopCallback())
 
-                trainer.train(resume_from_checkpoint=(epoch != 0))
+                if self.al_config.training_strategy == "full_retrain":
+                    #trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=3))
+                    trainer.add_callback(EvaluateAfterEpochCallback())
+                    trainer.train()
+                    predictions = {}
+                    # Get preferences from buffer set
+                    _, inference = trainer.inference(self.batch, return_features=True)
+                    preferences_np = np.array(inference['preferences']).flatten()
+                    ids = inference['id']
+                    predictions["eval_buffer"] = pd.DataFrame({"First": preferences_np, "Second": 1 - preferences_np, 'id': ids})
+                    
+                    # Get preferences for eval sets
+                    for eval_dataset_name, eval_dataset in trainer.eval_dataset.items():
+                        _, inference = trainer.inference(eval_dataset, return_features=True)
+                        preferences_np = np.array(inference['preferences']).flatten()
+                        ids = inference['id']
+                        predictions[f"eval_{eval_dataset_name}"] = pd.DataFrame({"First": preferences_np, "Second": 1 - preferences_np, 'id': ids})
+                else:
+                    trainer.add_callback(StopCallback())
+                    trainer.train(resume_from_checkpoint=(epoch != 0))
+                    predictions = trainer.predictions
 
                 global_step = trainer.state.global_step 
             
-                self.all_predictions[run.run_name][global_step] = trainer.predictions
+                self.all_predictions[run.run_name][epoch] = predictions
                 self.run_dir = trainer.run_dir
 
-            self.state.global_step = global_step
+            self.state.global_step = epoch
             # Generate Ensemble Predictions and Eval/Wandb
             for mode in self.eval_sets.keys():
                 if mode == "train":
-                    acquisition_fn = self._eval_ensemble(mode, global_step, self.all_predictions, return_uncertainty=True)
+                    acquisition_fn = self._eval_ensemble(mode, epoch, self.all_predictions, return_uncertainty=True)
                 else:
-                    self._eval_ensemble(mode, global_step, self.all_predictions)
+                    self._eval_ensemble(mode, epoch, self.all_predictions)
+
+            # Eval ensemble for the current training buffer
+            self._eval_ensemble("buffer", epoch, self.all_predictions)
 
             # Select new batch points based on uncertainty
             nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, \
                                     self.al_config.active_batch_size, self.df_train, self.al_config.selection_strategy).to_frame()
             
             # Merge with current df and remove points from it
-            self.batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
-            self.batch = NumPyDataset(self.batch)
+            new_batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
+            if self.al_config.dataset_strategy == 'full_labeled_set':
+                # Add new batch to buffer and shuffle rows
+                self.batch = pd.concat([self.batch.df, new_batch]).sample(frac=1).reset_index(drop=True)
+                self.batch = NumPyDataset(self.batch)
+            elif self.al_config.dataset_strategy == 'batch_only':
+                self.batch = NumPyDataset(new_batch)
 
             # Remove these rows from initial dataset
             all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
@@ -178,6 +215,8 @@ class ActiveLearningTrainer():
                     run_name=args.run_name,
                     heuristic=args.heuristic,
                     selection_strategy=args.selection_strategy,
+                    dataset_strategy=args.dataset_strategy,
+                    training_strategy=args.training_strategy,
                     output_dir=os.path.join(args.output_dir, "active_learning"))
 
     def _build_reward_config(self, args, run_name, num_epochs):
@@ -185,7 +224,7 @@ class ActiveLearningTrainer():
                 output_dir=os.path.join(args.output_dir, run_name),
                 per_device_train_batch_size=args.per_device_train_batch_size,
                 per_device_eval_batch_size=args.per_device_eval_batch_size,
-                num_train_epochs=num_epochs,
+                num_train_epochs=num_epochs if args.training_strategy != "full_retrain" else 4.0,
                 gradient_accumulation_steps=args.gradient_accumulation_steps,
                 gradient_checkpointing=args.gradient_checkpointing,
                 learning_rate=args.learning_rate,
@@ -193,8 +232,10 @@ class ActiveLearningTrainer():
                 remove_unused_columns=False,
                 warmup_steps=args.num_warmup_steps,
                 optim=args.optimizer_type,
-                evaluation_strategy=args.eval_strategy,
+                evaluation_strategy=args.evaluation_strategy,
                 logging_strategy=args.logging_strategy,
+                eval_steps=args.eval_steps,
+                save_steps=args.save_steps,
                 save_strategy=args.save_strategy,
                 max_length=args.seq_length,
                 run_name=run_name,
@@ -204,8 +245,12 @@ class ActiveLearningTrainer():
                 save_predictions_steps=args.save_predictions_steps,
                 save_total_limit=args.save_total_limit,
                 bf16=args.bf16,
+                ignore_data_skip=args.ignore_data_skip,
                 dataloader_num_workers=args.num_workers,
                 dataloader_pin_memory=args.pin_memory,
+                # metric_for_best_model="eval_eval_loss",
+                # load_best_model_at_end=True,
+                # greater_is_better=False,
                 log_level="debug")
 
     def _reinit_linear_layer(self, module, score_init_std, seed):
@@ -213,10 +258,10 @@ class ActiveLearningTrainer():
         if module.bias is not None:
             module.bias.data.zero_()
 
-    def _eval_ensemble(self, mode, global_step, all_preds, return_uncertainty=False):
+    def _eval_ensemble(self, mode, epoch, all_preds, return_uncertainty=False):
         ensemble_df = []
         for run in self.runs:
-             ensemble_df.append(all_preds[run.run_name][global_step][f'eval_{mode}'])
+             ensemble_df.append(all_preds[run.run_name][epoch][f'eval_{mode}'])
         print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
         
         epistemic, predictive, aleatoric, ens_probs, var_predictions, ids = compute_uncertanties(ensemble_df)
@@ -226,14 +271,20 @@ class ActiveLearningTrainer():
         avg_var = var_predictions.mean()
         acc = compute_ensemble_accuracy(ens_probs)
         log_likelihood = -log_loss(np.zeros(len(ens_probs['First'])), ens_probs.values, labels=[0, 1])
+        brier_score = (1 - ens_probs['First']) ** 2
         logs = { 
-            f"ensemble/{mode}_EnsAvgEpistemic": avg_ep, 
+            f"ensemble/{mode}_EnsAvgEpistemic": avg_ep,
             f"ensemble{mode}_EnsAvgPredictive": avg_pred, 
             f"ensemble/{mode}_EnsAvgAleatoric": avg_ale, 
             f"ensemble/{mode}_EnsAvgVariance": avg_var, 
             f"ensemble/{mode}_EnsAvgAccuracy": acc,
             f"ensemble/{mode}_LogLikelihood": log_likelihood,
-            f"ensemble/system/{mode}_PredictionsLoaded": len(ensemble_df)}
+            f"ensemble/system/{mode}_PredictionsLoaded": len(ensemble_df),
+            f"ensemble/{mode}_AvgBrierScore": brier_score.mean(),
+            f"ensemble/{mode}_CorrEpistemicBrierScore": epistemic.corr(brier_score, method='spearman'),
+            f"ensemble/{mode}_CorrPredictiveBrierScore": predictive.corr(brier_score, method='spearman'),
+            f"ensemble/{mode}_CorrVarianceBrierScore": var_predictions.corr(brier_score, method='spearman'),
+            }
         
         self.callback_handler.on_log(self.al_config, self.state, self.control, logs)
 
@@ -258,6 +309,23 @@ class ActiveLearningTrainer():
             elif selection_strategy == 'sample':
                 normalized_probs = final_pool[heuristic] / final_pool[heuristic].sum()
                 next_batch_ids = final_pool.sample(n=batch_size, replace=False, weights=normalized_probs)
+            elif selection_strategy == 'clustered_rank':
+                #TODO improve implementation
+                num_collisions = 0
+                final_pool.sort_values(heuristic, ascending=False, inplace=True)
+                chosen_groups = set()
+                next_batch_ids = pd.DataFrame(columns=final_pool.columns)
+                for _, row in final_pool.iterrows():
+                    group = self.groups_dict[row['id']]
+                    if group not in chosen_groups:
+                        chosen_groups.add(group)
+                        next_batch_ids = pd.concat([next_batch_ids, pd.DataFrame([row])], ignore_index=True)
+                    else:
+                        num_collisions += 1
+                    
+                    if len(next_batch_ids) == batch_size:
+                        print(f"Num collisions: {num_collisions}")
+                        break
             
         return next_batch_ids['id']
 
