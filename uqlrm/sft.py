@@ -271,5 +271,5 @@ if script_args.use_peft:
     model = AutoPeftModelForCausalLM.from_pretrained(output_dir, device_map="auto", torch_dtype=torch.bfloat16)
     model = model.merge_and_unload()
 
-    output_merged_dir = os.path.join(script_args.training_args.output_dir, "final_merged_checkpoint")
+    output_merged_dir = os.path.join(training_args.output_dir, "final_merged_checkpoint")
     model.save_pretrained(output_merged_dir, safe_serialization=True)

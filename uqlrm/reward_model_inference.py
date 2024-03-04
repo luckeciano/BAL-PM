@@ -22,8 +22,8 @@ from dataset_utils import dataset_process_factory
 from dataset_utils.dataset_processing_utils import create_datasets, undersample_dataset
 
 from utils import push_predictions_to_hub
-from reward_modeling import (
-    RewardDataCollatorWithPaddingAndIndices, RewardInferencer, build_reward_model)
+from collators import RewardDataCollatorWithPaddingAndIndices
+from reward_modeling import RewardInferencer, build_reward_model
 from configs import RewardConfigWithSavedPredictions
 from parsing.reward_modeling_parser import RewardModelingArguments
 
@@ -62,7 +62,7 @@ reward_config = RewardConfigWithSavedPredictions(
 model, tokenizer, peft_config = build_reward_model(script_args)
 
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
-train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, tokenizer, ood=True)
+train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, tokenizer)
 
 if script_args.undersample_eval:
     undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio, seed=script_args.seed)
@@ -115,18 +115,18 @@ for eval_dataset_name, eval_dataset in trainer.eval_dataset.items():
     ft_df = ft_df[['id'] + [col for col in ft_df.columns if col != 'id']]
     ft_df.to_csv(f'features_{eval_dataset_name}_{script_args.run_name}.csv', index=False, header=True)
     
-    # all_features.extend(features['features_chosen'])
-    # all_metadata.extend([['chosen', f'{features["rewards_chosen"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_chosen"]))])
+    all_features.extend(features['features_chosen'])
+    all_metadata.extend([['chosen', f'{features["rewards_chosen"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_chosen"]))])
     
-    # all_features.extend(features['features_rejected'])
-    # all_metadata.extend([['rejected', f'{features["rewards_rejected"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_rejected"]))])
+    all_features.extend(features['features_rejected'])
+    all_metadata.extend([['rejected', f'{features["rewards_rejected"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_rejected"]))])
 
 
-# ft_df = pd.DataFrame(all_features).round(4)
-# all_metadata_df = pd.DataFrame(all_metadata)
+all_ft_df = pd.DataFrame(all_features).round(4)
+all_metadata_df = pd.DataFrame(all_metadata)
 
-# ft_df.to_csv(f'features_{script_args.run_name}.tsv', sep='\t', index=False, header=False)
-# all_metadata_df.to_csv(f'metadata_{script_args.run_name}.tsv', sep='\t', index=False, header=['Preference', 'RewardScore', 'Model', 'Dataset', 'id'])
+all_ft_df.to_csv(f'all_features_{script_args.run_name}.tsv', sep='\t', index=False, header=False)
+all_metadata_df.to_csv(f'metadata_{script_args.run_name}.tsv', sep='\t', index=False, header=['Preference', 'RewardScore', 'Model', 'Dataset', 'id'])
 
     
     

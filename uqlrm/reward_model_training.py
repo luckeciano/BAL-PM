@@ -19,8 +19,8 @@ from dataset_utils import dataset_process_factory
 from dataset_utils.dataset_processing_utils import create_datasets, undersample_dataset
 
 from utils import print_trainable_parameters, EvaluateFirstStepCallback, push_predictions_to_hub
-from reward_modeling import (
-    RewardDataCollatorWithPaddingAndIndices, RewardTrainerWithCustomEval, build_reward_model)
+from collators import RewardDataCollatorWithPaddingAndIndices
+from reward_modeling import RewardTrainerWithCustomEval, build_reward_model
 from configs import RewardConfigWithSavedPredictions
 from parsing.reward_modeling_parser import RewardModelingArguments
 import os
@@ -62,7 +62,7 @@ reward_config = RewardConfigWithSavedPredictions(
 model, tokenizer, peft_config = build_reward_model(script_args)
 
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
-train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, tokenizer, ood=True)
+train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, tokenizer)
 
 if script_args.undersample_eval:
     undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio, seed=script_args.seed)

@@ -9,6 +9,7 @@ import time
 import numpy as np
 from packaging import version
 from tqdm import tqdm
+from metrics import compute_uncertanties
 
 import warnings
 
@@ -413,4 +414,13 @@ class AdapterEnsembleRewardTrainer(RewardTrainer):
                 "id": all_ids
             }
         return loss
+    
+    def compute_uncertainties(self, runs, mode, epoch, all_preds):
+
+        ensemble_df = []
+        for run in runs:
+             ensemble_df.append(all_preds[run.run_name][epoch][f'eval_{mode}'])
+        print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
+        
+        return compute_uncertanties(ensemble_df)
     

@@ -2,7 +2,7 @@ from scipy.stats import entropy
 import pandas as pd
 import numpy as np
 
-def compute_ensemble_accuracy(ens_probs):
+def compute_accuracy(ens_probs):
     ens_predictions = np.argmax(ens_probs, axis=1)
     accuracy = np.array(ens_predictions == 0, dtype=float).mean()
     return accuracy

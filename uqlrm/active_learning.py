@@ -1,9 +1,9 @@
 from configs import ActiveLearningConfig, RewardConfigWithSavedPredictions
 from dataset_utils import create_datasets, undersample_dataset, NumPyDataset
-from metrics import compute_uncertanties, compute_ensemble_accuracy
 from parsing import ActiveLearningArguments
 from utils import StopCallback, EvaluateAfterEpochCallback, push_predictions_to_hub
 from factory import RewardModelFactory, DataCollatorFactory, TrainerFactory
+from metrics import compute_accuracy
 
 import pandas as pd
 import numpy as np
@@ -66,7 +66,8 @@ class ActiveLearningTrainer():
         self.df_train = self.df_train[self.al_config.initial_sample_size:]
         
         # compute num_epochs based on dataset length and hyperparameters
-        self.num_epochs = 1 + (len(self.df_train) // self.al_config.active_batch_size)
+        # self.num_epochs = 1 + (len(self.df_train) // self.al_config.active_batch_size)
+        self.num_epochs = 60
 
         # Set callbacks for logging
         log_callbacks = [DefaultFlowCallback] + get_reporting_integration_callbacks([self.script_args.log_with])
@@ -140,7 +141,7 @@ class ActiveLearningTrainer():
 
 
                 if self.al_config.training_strategy == "full_retrain":
-                    #trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=3))
+                    trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=3))
                     trainer.add_callback(EvaluateAfterEpochCallback())
                     trainer.train()
                     predictions = {}
@@ -170,12 +171,12 @@ class ActiveLearningTrainer():
             # Generate Ensemble Predictions and Eval/Wandb
             for mode in self.eval_sets.keys():
                 if mode == "train":
-                    acquisition_fn = self._eval_ensemble(mode, epoch, self.all_predictions, return_uncertainty=True)
+                    acquisition_fn = self._eval_uncertainty(mode, epoch, self.all_predictions, trainer, return_uncertainty=True)
                 else:
-                    self._eval_ensemble(mode, epoch, self.all_predictions)
+                    self._eval_uncertainty(mode, epoch, self.all_predictions, trainer)
 
             # Eval ensemble for the current training buffer
-            self._eval_ensemble("buffer", epoch, self.all_predictions)
+            self._eval_uncertainty("buffer", epoch, self.all_predictions, trainer)
 
             # Select new batch points based on uncertainty
             nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, \
@@ -248,9 +249,9 @@ class ActiveLearningTrainer():
                 ignore_data_skip=args.ignore_data_skip,
                 dataloader_num_workers=args.num_workers,
                 dataloader_pin_memory=args.pin_memory,
-                # metric_for_best_model="eval_eval_loss",
-                # load_best_model_at_end=True,
-                # greater_is_better=False,
+                metric_for_best_model="eval_eval_loss",
+                load_best_model_at_end=True,
+                greater_is_better=False,
                 log_level="debug")
 
     def _reinit_linear_layer(self, module, score_init_std, seed):
@@ -258,18 +259,15 @@ class ActiveLearningTrainer():
         if module.bias is not None:
             module.bias.data.zero_()
 
-    def _eval_ensemble(self, mode, epoch, all_preds, return_uncertainty=False):
-        ensemble_df = []
-        for run in self.runs:
-             ensemble_df.append(all_preds[run.run_name][epoch][f'eval_{mode}'])
-        print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
+    def _eval_uncertainty(self, mode, epoch, all_preds, trainer, return_uncertainty=False):
+        epistemic, predictive, aleatoric, ens_probs, var_predictions, ids = trainer.compute_uncertainties(self.runs, mode, epoch, all_preds)
         
-        epistemic, predictive, aleatoric, ens_probs, var_predictions, ids = compute_uncertanties(ensemble_df)
         avg_ep = epistemic.mean()
         avg_pred = predictive.mean()
         avg_ale = aleatoric.mean()
         avg_var = var_predictions.mean()
-        acc = compute_ensemble_accuracy(ens_probs)
+        acc = compute_accuracy(ens_probs)
+        model_error = (ens_probs['First'] < 0.5) * 1.0
         log_likelihood = -log_loss(np.zeros(len(ens_probs['First'])), ens_probs.values, labels=[0, 1])
         brier_score = (1 - ens_probs['First']) ** 2
         logs = { 
@@ -279,11 +277,13 @@ class ActiveLearningTrainer():
             f"ensemble/{mode}_EnsAvgVariance": avg_var, 
             f"ensemble/{mode}_EnsAvgAccuracy": acc,
             f"ensemble/{mode}_LogLikelihood": log_likelihood,
-            f"ensemble/system/{mode}_PredictionsLoaded": len(ensemble_df),
             f"ensemble/{mode}_AvgBrierScore": brier_score.mean(),
             f"ensemble/{mode}_CorrEpistemicBrierScore": epistemic.corr(brier_score, method='spearman'),
             f"ensemble/{mode}_CorrPredictiveBrierScore": predictive.corr(brier_score, method='spearman'),
             f"ensemble/{mode}_CorrVarianceBrierScore": var_predictions.corr(brier_score, method='spearman'),
+            f"ensemble/{mode}_CorrEpistemicError": epistemic.corr(model_error, method='spearman'),
+            f"ensemble/{mode}_CorrPredictiveError": predictive.corr(model_error, method='spearman'),
+            f"ensemble/{mode}_CorrVarianceError": var_predictions.corr(model_error, method='spearman'),
             }
         
         self.callback_handler.on_log(self.al_config, self.state, self.control, logs)
