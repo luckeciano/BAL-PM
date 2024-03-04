@@ -3,6 +3,7 @@
 from sklearn.utils import shuffle
 from typing import Literal
 import json
+import ast
 
 
 def process_reddit_sft(example, tokenizer, seq_len):
@@ -17,20 +18,38 @@ def process_reddit_sft(example, tokenizer, seq_len):
 
     return final_examples
 
+def process_alpacafarm_sft(example, tokenizer, seq_len):
+    final_examples = {
+        "text": []
+    }
+    
+    for instruction, input, output in zip(example['instruction'], example["input"], example['output']):
+        final_prompt = f"Instruction: {instruction}"
+
+        response = f"\nResponse: {output}"
+
+        if example['input']:
+            final_prompt = final_prompt + f"\n{input}"
+        
+        final_prompt = final_prompt + response
+        final_examples["text"].append(final_prompt)
+
+    return final_examples
+
 def process_ultrafeedback_sft(examples, tokenizer, max_len):
     new_examples = {
         "text": []
     }
 
     for post, chosen, rejected, messages,  id in zip(examples['prompt'], examples["chosen"], examples["rejected"], examples["messages"], examples["id"]):
-        #TODO FIX THIS
-        messages_dict = json.loads(messages.replace("\'", "\""))
+        messages_dict = ast.literal_eval(messages.replace("}\n", "},"))
         example = {'post': post, 'chosen': chosen, 'rejected': rejected, 'messages': messages_dict}
         
         example = apply_chat_template(example, tokenizer, "sft")
 
         new_examples["text"].append(example['text'])
-    return example
+        
+    return new_examples
 
 def chosen_rejected_preprocess_function(examples, tokenizer, max_len):
     new_examples = {
@@ -122,7 +141,10 @@ def ultrafeedback_preprocess_function(examples, tokenizer, max_len):
     }
 
     for post, chosen, rejected, id in zip(examples['prompt'], examples["chosen"], examples["rejected"], examples["id"]):
-        example = {'post': post, 'chosen': chosen, 'rejected': rejected}
+        chosen = ast.literal_eval(chosen.replace("}\n", "},"))
+        rejected = ast.literal_eval(rejected.replace("}\n", "},"))
+
+        example = {"chosen": chosen, "rejected": rejected}
         example = apply_chat_template(example, tokenizer, "rm")
 
         final_chosen = example['text_chosen']
@@ -130,14 +152,44 @@ def ultrafeedback_preprocess_function(examples, tokenizer, max_len):
         tokenized_chosen = tokenizer(final_chosen)
         tokenized_rejected = tokenizer(final_rejected)
 
-        tokenized_chosen = tokenizer(chosen)
-        tokenized_rejected = tokenizer(rejected)
+        new_examples["input_ids_chosen"].append(tokenized_chosen["input_ids"])
+        new_examples["attention_mask_chosen"].append(tokenized_chosen["attention_mask"])
+        new_examples["input_ids_rejected"].append(tokenized_rejected["input_ids"])
+        new_examples["attention_mask_rejected"].append(tokenized_rejected["attention_mask"])
+        new_examples["id"].append(id)
+
+    return new_examples
+
+def alpacafarm_preprocess_function(examples, tokenizer, max_len):
+    new_examples = {
+        "input_ids_chosen": [],
+        "attention_mask_chosen": [],
+        "input_ids_rejected": [],
+        "attention_mask_rejected": [],
+        "id": []
+    }
+
+    for instruction, input, output_1, output_2, preference, id in zip(examples['instruction'], examples["input"], examples["output_1"], examples["output_2"], examples["preference"], examples["id"]):
+        chosen = output_1 if preference == 1 else output_2
+        rejected = output_2 if preference == 1 else output_1
+
+        final_prompt = f"Instruction: {instruction}"
+        if input:
+            final_prompt = final_prompt + f"\n{input}"
+        
+        chosen_response = final_prompt + f"\nResponse: {chosen}"
+        rejected_response = final_prompt + f"\nResponse: {rejected}"
+
+        tokenized_chosen = tokenizer(chosen_response)
+        tokenized_rejected = tokenizer(rejected_response)
 
         new_examples["input_ids_chosen"].append(tokenized_chosen["input_ids"])
         new_examples["attention_mask_chosen"].append(tokenized_chosen["attention_mask"])
         new_examples["input_ids_rejected"].append(tokenized_rejected["input_ids"])
         new_examples["attention_mask_rejected"].append(tokenized_rejected["attention_mask"])
         new_examples["id"].append(id)
+
+    return new_examples
 
 
 def apply_chat_template(
