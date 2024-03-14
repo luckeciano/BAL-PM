@@ -32,6 +32,8 @@ class ActiveLearningConfig():
 
     training_strategy: Optional[str] = "full_retrain"
 
+    gumbel_beta: Optional[float] = 1.0
+
     def to_dict(self):
         return asdict(self)
 

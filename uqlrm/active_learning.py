@@ -16,6 +16,7 @@ from sklearn.metrics import log_loss
 from transformers.trainer_callback import CallbackHandler, TrainerState, TrainerControl, DefaultFlowCallback, EarlyStoppingCallback
 from transformers.integrations import get_reporting_integration_callbacks
 from transformers import HfArgumentParser
+import scipy
 import ast
 
 PANDAS_BATCH_SIZE = 2000
@@ -32,7 +33,7 @@ class ActiveLearningTrainer():
         # Build Active Learning Config
         self.al_config = self._build_active_learning_config(script_args)
 
-        with open('/users/lucelo/UQLRM/uqlrm/groups_train.txt', 'r') as f:
+        with open(self.script_args.clusters_filepath, 'r') as f:
             data = f.read()
             self.groups_dict = ast.literal_eval(data)
 
@@ -67,7 +68,7 @@ class ActiveLearningTrainer():
         
         # compute num_epochs based on dataset length and hyperparameters
         # self.num_epochs = 1 + (len(self.df_train) // self.al_config.active_batch_size)
-        self.num_epochs = 60
+        self.num_epochs = self.al_config.epoch_steps
 
         # Set callbacks for logging
         log_callbacks = [DefaultFlowCallback] + get_reporting_integration_callbacks([self.script_args.log_with])
@@ -211,6 +212,7 @@ class ActiveLearningTrainer():
             return ActiveLearningConfig(
                     initial_sample_size=args.initial_sample_size,
                     ensemble_size=args.ensemble_size,
+                    epoch_steps=args.epoch_steps,
                     active_batch_size=args.active_batch_size,
                     pool_size=args.pool_size,
                     run_name=args.run_name,
@@ -218,6 +220,7 @@ class ActiveLearningTrainer():
                     selection_strategy=args.selection_strategy,
                     dataset_strategy=args.dataset_strategy,
                     training_strategy=args.training_strategy,
+                    gumbel_beta=args.gumbel_beta,
                     output_dir=os.path.join(args.output_dir, "active_learning"))
 
     def _build_reward_config(self, args, run_name, num_epochs):
@@ -326,8 +329,37 @@ class ActiveLearningTrainer():
                     if len(next_batch_ids) == batch_size:
                         print(f"Num collisions: {num_collisions}")
                         break
-            
+            elif selection_strategy == "softmax_bald":
+                assert self.al_config.gumbel_beta > 0, "Gumbel's beta must be greater than zero"
+                scores_N = final_pool[heuristic]
+                N = len(scores_N)
+                final_pool['softmax_scores'] = self._get_softmax_samples(scores_N, self.al_config.gumbel_beta, N)
+                next_batch_ids = final_pool.nlargest(batch_size, 'softmax_scores')
+            elif selection_strategy == "power_bald":
+                assert self.al_config.gumbel_beta > 0, "Gumbel's beta must be greater than zero"
+                scores_N = final_pool[heuristic]
+                N = len(scores_N)
+                final_pool['power_scores'] = self._get_power_samples(scores_N, self.al_config.gumbel_beta, N)
+                next_batch_ids = final_pool.nlargest(batch_size, 'power_scores')
+            elif selection_strategy == "softrank_bald":
+                assert self.al_config.gumbel_beta > 0, "Gumbel's beta must be greater than zero"
+                scores_N = final_pool[heuristic]
+                N = len(scores_N)
+                final_pool['softrank_scores'] = self._get_softrank_samples(scores_N, self.al_config.gumbel_beta, N)
+                next_batch_ids = final_pool.nlargest(batch_size, 'softrank_scores')
+                
         return next_batch_ids['id']
+    
+    def _get_softmax_samples(self, scores_N, beta, N):
+        return scores_N + scipy.stats.gumbel_r.rvs(loc=0, scale=1 / beta, size=N, random_state=None)
+    
+    def _get_power_samples(self, scores_N, beta, N):
+        return self._get_softmax_samples(np.log(scores_N), beta, N)
+
+    def _get_softrank_samples(self, scores_N, beta, N):
+        sorted_indices = np.argsort(-scores_N)
+        ranks_N = np.argsort(sorted_indices) + 1
+        return self._get_power_samples(1 / ranks_N, beta, N)
 
 parser = HfArgumentParser(ActiveLearningArguments)
 script_args = parser.parse_args_into_dataclasses()[0]

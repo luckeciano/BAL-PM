@@ -26,6 +26,11 @@ class ActiveLearningArguments:
         default="full_retrain", metadata={"help": "How to train your posterior approximation at each epoch"}
     )
     score_init_std: Optional[float] = field(default=0.2, metadata={"help": "ratio of the dataset to consider for faster eval"})
+    clusters_filepath: Optional[str] = field(
+        default=None, metadata={"help": "The filepath for clusters in the used dataset."}
+    )
+    epoch_steps: Optional[int] = field(default=60, metadata={"help": "number of active learning cycles."})
+    gumbel_beta: Optional[float] = field(default=1.0, metadata={"help": "gumbel beta for stochastic batch acquisition functions"})
 
 
     # Model Arguments

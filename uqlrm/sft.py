@@ -12,7 +12,7 @@ from dataset_utils.dataset_processing_utils import undersample_dataset
 from peft import AutoPeftModelForCausalLM, LoraConfig
 from accelerate import Accelerator
 from transformers import AutoModelForCausalLM, AutoTokenizer, \
-    HfArgumentParser, TrainingArguments, BitsAndBytesConfig, logging
+    HfArgumentParser, TrainingArguments, BitsAndBytesConfig, logging, EarlyStoppingCallback
 
 from trl import SFTTrainer
 from trl.trainer import ConstantLengthDataset
@@ -220,6 +220,10 @@ training_args = TrainingArguments(
     lr_scheduler_type=script_args.lr_scheduler_type,
     warmup_steps=script_args.num_warmup_steps,
     optim=script_args.optimizer_type,
+    save_total_limit=3,
+    metric_for_best_model="loss",
+    load_best_model_at_end=True,
+    greater_is_better=False,
     bf16=True,
     remove_unused_columns=False,
     run_name=script_args.run_name,
@@ -256,6 +260,7 @@ trainer = SFTTrainer(
 )
 
 print_trainable_parameters(trainer.model)
+trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=3))
 trainer.train()
 
 

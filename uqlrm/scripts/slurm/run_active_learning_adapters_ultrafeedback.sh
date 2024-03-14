@@ -28,8 +28,8 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --output_dir /scratch-ssd/lucelo/active_learning/results/$1 \
 --model_type "adapters_ens" \
 --run_name "$1" \
---dataset_name "luckeciano/reddit-features-hermes" \
---clusters_filepath "/users/lucelo/UQLRM/uqlrm/data/groups_reddit.txt" \
+--dataset_name "luckeciano/hermes-features-ultrafeedback" \
+--clusters_filepath "/users/lucelo/UQLRM/uqlrm/data/groups_ultrafeedback.txt" \
 --per_device_eval_batch_size 1024 \
 --quantization_scheme "none" \
 --push_predictions_to_hub True \
@@ -45,17 +45,16 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \
 --heuristic "Epistemic Uncertainty" \
---selection_strategy "power_bald" \
---gumbel_beta "12.0" \
---pool_size 92000 \
+--selection_strategy "clustered_rank" \
+--pool_size 1000000 \
 --seed 77 \
 --score_init_std 0.02 \
 --learning_rate 3e-5 \
 --bf16 False \
 --train_split "train" \
 --test_split "test" \
---valid_split "eval" \
---ood_split "ood" \
+--valid_split "valid" \
+--ood_split "test" \
 --gradient_checkpointing False  \
 --dataset_strategy "full_labeled_set" \
 --training_strategy "full_retrain" \
