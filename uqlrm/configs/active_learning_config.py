@@ -34,6 +34,8 @@ class ActiveLearningConfig():
 
     gumbel_beta: Optional[float] = 1.0
 
+    downsample_pool: Optional[bool] = False
+
     def to_dict(self):
         return asdict(self)
 

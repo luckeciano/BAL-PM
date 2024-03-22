@@ -37,7 +37,7 @@ class RewardModelFactory:
         model.config.pad_token_id = model.config.eos_token_id # fix
 
         # PEFT config
-        if script_args.use_peft and not script_args.inference:
+        if script_args.use_peft:
             peft_config = LoraConfig(
                     r=script_args.peft_lora_r,
                     lora_alpha=script_args.peft_lora_alpha,

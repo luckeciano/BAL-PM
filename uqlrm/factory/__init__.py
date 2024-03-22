@@ -1,3 +1,4 @@
 from .reward_model_factory import RewardModelFactory
 from .collator_factory import DataCollatorFactory
 from .trainer_factory import TrainerFactory
+from .dataset_factory import DatasetFactory

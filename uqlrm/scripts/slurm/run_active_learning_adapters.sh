@@ -29,6 +29,7 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --model_type "adapters_ens" \
 --run_name "$1" \
 --dataset_name "luckeciano/reddit-features-hermes" \
+--dataset_type "numpy" \
 --clusters_filepath "/users/lucelo/UQLRM/uqlrm/data/groups_reddit.txt" \
 --per_device_eval_batch_size 1024 \
 --quantization_scheme "none" \
@@ -36,7 +37,8 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --predictions_dataset_hub "luckeciano/uqlrm_predictions" \
 --use_peft False \
 --undersample_eval False \
---undersample_ratio 0.1  \
+--undersample_val_ratio 1.0  \
+--undersample_infer_ratio 1.0 \
 --initial_sample_size 320 \
 --ensemble_size 5 \
 --active_batch_size 320 \
@@ -45,10 +47,10 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \
 --heuristic "Epistemic Uncertainty" \
---selection_strategy "power_bald" \
---gumbel_beta "12.0" \
+--selection_strategy "clustered_rank" \
+--gumbel_beta "8.0" \
 --pool_size 92000 \
---seed 77 \
+--seed 9 \
 --score_init_std 0.02 \
 --learning_rate 3e-5 \
 --bf16 False \
@@ -64,3 +66,5 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --save_strategy "steps" \
 --eval_steps 100 \
 --save_steps 100 \
+--regularization_loss "True" \
+--lambda_regularizer "1000.0" \

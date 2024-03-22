@@ -18,4 +18,8 @@ class RewardConfigWithSavedPredictions(RewardConfig):
 
     predictions_dir: Optional[str] = None
 
+    regularized_loss: Optional[bool] = False
+
+    lambda_regularization: Optional[float] = 0.01
+
 

@@ -3,7 +3,7 @@ from reward_modeling import RewardTrainerWithCustomEval, AdapterEnsembleRewardTr
 class TrainerFactory:
     def __init__(self):
         self.models = {
-            'reward_trainer': self._create_reward_trainer,
+            'finetune_ensemble_trainer': self._create_reward_trainer,
             'adapters_ensemble_trainer': self._create_adapters_ensembles_trainer,
             'vatiational_trainer': self._create_variational_trainer
         }

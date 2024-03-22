@@ -9,6 +9,7 @@ class ActiveLearningArguments:
     ensemble_size: Optional[int] = field(default=8, metadata={"help": "ensemble size"})
     active_batch_size: Optional[int] = field(default=64, metadata={"help": "sample size for each active learning iteration"})
     pool_size: Optional[int] = field(default=4096, metadata={"help": "sample size for each active learning iteration"})
+    downsample_pool: Optional[bool] = field(default=False, metadata={"help": "whether to downsample pool size. This will be sampled every cycle from the pool size."})
     steps_per_epoch: Optional[int] = field(default=1, metadata={"help": "how many gradient steps to perform per epoch"})
     run_name: Optional[str] = field(
         default=None, metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."}
@@ -39,6 +40,8 @@ class ActiveLearningArguments:
     tokenizer_name: Optional[str] = field(default="gpt2", metadata={"help": "the tokenizer name"})
     log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
     run_name: Optional[str] = field(default="active_learning_test", metadata={"help": "The experiment name"})
+    regularization_loss: Optional[bool] = field(default=False, metadata={"help": "whether to add l2 distance penalty regularizer"})
+    lambda_regularizer: Optional[float] = field(default=0.01, metadata={"help": "regularizer strength"})
 
     # Model Architecture (For MLP and VI)
     layers: Optional[str] = field(default='[2048, 256]', metadata={"help": "mlp layers"})
@@ -46,9 +49,10 @@ class ActiveLearningArguments:
     init_func: Optional[str] = field(default='normal', metadata={"help": "weight init scheme"})
     weight_init: Optional[float] = field(default=0.01, metadata={"help": "weight init dispersion parameter"})
 
-    # Collator/Trainer
+    # Collator/Trainer/Dataset Type
     collator_type: Optional[str] = field(default='frozen_backbone_collator', metadata={"help": "collator type"})
     trainer_type: Optional[str] = field(default='adapters_ensemble_trainer', metadata={"help": "trainer type"})
+    dataset_type: Optional[str] = field(default='pandas', metadata={"help": "dataset type"})
 
 
     dataset_name: Optional[str] = field(default="luckeciano/learning-to-summarize", metadata={"help": "the dataset name"})
@@ -67,7 +71,8 @@ class ActiveLearningArguments:
     pin_memory: Optional[bool] = field(default=True, metadata={"help": "dataloader pin memory"})
     ignore_data_skip: Optional[bool] = field(default=False, metadata={"help": "ignore data skip when loading from checkpoint"})
     undersample_eval: Optional[bool] = field(default=False, metadata={"help": "whether to undersample eval datasets for faster evaluation"})
-    undersample_ratio: Optional[float] = field(default=0.1, metadata={"help": "ratio of the dataset to consider for faster eval"})
+    undersample_val_ratio: Optional[float] = field(default=0.1, metadata={"help": "ratio of the dataset to consider for faster eval"})
+    undersample_infer_ratio: Optional[float] = field(default=0.1, metadata={"help": "ratio of the dataset to consider for faster inference"})
 
     max_steps: Optional[int] = field(default=-1, metadata={"help": "Max gradient steps. Overrides num_train_epochs if set."})
     num_train_epochs: Optional[int] = field(default=1, metadata={"help": "number of epochs"})

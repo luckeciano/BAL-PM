@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import os
 import pandas as pd
-import time
+import copy
 import numpy as np
 from packaging import version
 from tqdm import tqdm
@@ -73,13 +73,19 @@ class AdapterEnsembleRewardTrainer(RewardTrainer):
             ),
             preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
             max_length: Optional[int] = None,
-            peft_config: Optional[Dict] = None
+            peft_config: Optional[Dict] = None,
         ):
             self.main_input_name = "id"
             self.predictions = {}
             self.run_dir = ""
+            self.regularized_loss = args.regularized_loss
+            
             super().__init__(model, args, data_collator, train_dataset, eval_dataset, tokenizer, model_init, \
                          compute_metrics, callbacks, optimizers, preprocess_logits_for_metrics, max_length, peft_config)
+            
+            if self.regularized_loss:
+                self.base_parameters = [copy.deepcopy(p.data).detach() for p in model.parameters()]
+                self.lambda_reg = args.lambda_regularization
 
     def compute_loss(
         self,
@@ -109,6 +115,13 @@ class AdapterEnsembleRewardTrainer(RewardTrainer):
             loss = -nn.functional.logsigmoid(rewards_chosen - rewards_rejected - inputs["margin"]).mean()
         else:
             loss = -nn.functional.logsigmoid(rewards_chosen - rewards_rejected).mean()
+
+        if self.regularized_loss:
+            curr_params = [p.data for p in model.parameters()]
+            l2_dist = sum((p1 - p2).norm(2).item() for p1, p2 in zip(curr_params, self.base_parameters))
+            reg = self.lambda_reg / self.state.max_steps # Consider the number of gradient steps in the regularizer
+
+            loss = loss + reg * l2_dist
 
         if return_outputs:
             return loss, {

@@ -52,6 +52,10 @@ class DataFrameDataset(Dataset):
         batch.reset_index(inplace=True, drop=True)
         return batch
     
+    def shuffle(self):
+        shuffled_df = self.df.sample(frac=1).reset_index(drop=True)
+        self.df = shuffled_df
+    
 class NumPyDataset(Dataset):
     def __init__(self, df):
         self.df = df

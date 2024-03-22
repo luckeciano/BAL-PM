@@ -1,8 +1,8 @@
 from configs import ActiveLearningConfig, RewardConfigWithSavedPredictions
-from dataset_utils import create_datasets, undersample_dataset, NumPyDataset
+from dataset_utils import create_datasets
 from parsing import ActiveLearningArguments
 from utils import StopCallback, EvaluateAfterEpochCallback, push_predictions_to_hub
-from factory import RewardModelFactory, DataCollatorFactory, TrainerFactory
+from factory import RewardModelFactory, DataCollatorFactory, TrainerFactory, DatasetFactory
 from metrics import compute_accuracy
 
 import pandas as pd
@@ -47,24 +47,37 @@ class ActiveLearningTrainer():
         indices = shuffle(indices, random_state=script_args.seed)
         indices = indices[:self.al_config.pool_size]
         self.df_train = full_train_df.iloc[indices]
-        
-        train_dataset = NumPyDataset(self.df_train)
-        eval_dataset = NumPyDataset(eval_dataset.to_pandas())
-        test_dataset = NumPyDataset(test_dataset.to_pandas())
-        ood_dataset = NumPyDataset(ood_dataset.to_pandas())
 
+        self.build_dataset = DatasetFactory().create(self.script_args.dataset_type)
+
+        train_dataset = self.build_dataset(self.df_train)
+        eval_dataset = self.build_dataset(eval_dataset.to_pandas())
+        test_dataset = self.build_dataset(test_dataset.to_pandas())
+        ood_dataset = self.build_dataset(ood_dataset.to_pandas())
 
         if script_args.undersample_eval:
-            undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio, script_args.seed)
-            undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio, script_args.seed)
-            self.eval_sets = {"train": train_dataset, "eval": undersampled_eval, "test": undersampled_test, "ood": ood_dataset}
+            undersampled_val_eval = self._undersample_dataset(eval_dataset, script_args.undersample_val_ratio, script_args.seed)
+            
+            undersampled_infer_eval = self._undersample_dataset(eval_dataset, script_args.undersample_infer_ratio, script_args.seed)
+            undersampled_infer_test = self._undersample_dataset(test_dataset, script_args.undersample_infer_ratio, script_args.seed)
+            self.eval_sets = {"eval": undersampled_val_eval}
+            self.inference_sets = {"test": undersampled_infer_test, "eval": undersampled_infer_eval}
         else:
-            self.eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}    
+            self.eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
+            self.inference_sets = {"test": test_dataset, "eval": eval_dataset}
 
+        # Adding OOD dataset to inference sets
+        self.inference_sets['ood'] = ood_dataset  
+        
         self.batch = self.df_train[:self.al_config.initial_sample_size]
         self.batch.reset_index(drop=True, inplace=True)
-        self.batch = NumPyDataset(self.batch)
+        self.batch = self.build_dataset(self.batch)
         self.df_train = self.df_train[self.al_config.initial_sample_size:]
+
+        
+        # Adding train set to inference sets based on downsample parameter
+        self.inference_sets['train'] = self._downsample_pool(self.df_train, 16 * self.al_config.active_batch_size) \
+            if self.al_config.downsample_pool else train_dataset
         
         # compute num_epochs based on dataset length and hyperparameters
         # self.num_epochs = 1 + (len(self.df_train) // self.al_config.active_batch_size)
@@ -152,8 +165,8 @@ class ActiveLearningTrainer():
                     ids = inference['id']
                     predictions["eval_buffer"] = pd.DataFrame({"First": preferences_np, "Second": 1 - preferences_np, 'id': ids})
                     
-                    # Get preferences for eval sets
-                    for eval_dataset_name, eval_dataset in trainer.eval_dataset.items():
+                    # Get preferences for inference sets
+                    for eval_dataset_name, eval_dataset in self.inference_sets.items():
                         _, inference = trainer.inference(eval_dataset, return_features=True)
                         preferences_np = np.array(inference['preferences']).flatten()
                         ids = inference['id']
@@ -170,7 +183,7 @@ class ActiveLearningTrainer():
 
             self.state.global_step = epoch
             # Generate Ensemble Predictions and Eval/Wandb
-            for mode in self.eval_sets.keys():
+            for mode in self.inference_sets.keys():
                 if mode == "train":
                     acquisition_fn = self._eval_uncertainty(mode, epoch, self.all_predictions, trainer, return_uncertainty=True)
                 else:
@@ -188,14 +201,17 @@ class ActiveLearningTrainer():
             if self.al_config.dataset_strategy == 'full_labeled_set':
                 # Add new batch to buffer and shuffle rows
                 self.batch = pd.concat([self.batch.df, new_batch]).sample(frac=1).reset_index(drop=True)
-                self.batch = NumPyDataset(self.batch)
+                self.batch = self.build_dataset(self.batch)
             elif self.al_config.dataset_strategy == 'batch_only':
-                self.batch = NumPyDataset(new_batch)
+                self.batch = self.build_dataset(new_batch)
 
             # Remove these rows from initial dataset
             all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
             self.df_train = all_rows[all_rows['_merge'] == 'left_only']
             self.df_train = self.df_train.drop(columns=['_merge'])
+
+            if self.al_config.downsample_pool:
+                self.inference_sets['train'] = self._downsample_pool(self.df_train, 16 * self.al_config.active_batch_size)
 
             del self.base_model, self.tokenizer
             # For each epoch, re-instatiate the base_model after deleting previous instance
@@ -215,6 +231,7 @@ class ActiveLearningTrainer():
                     epoch_steps=args.epoch_steps,
                     active_batch_size=args.active_batch_size,
                     pool_size=args.pool_size,
+                    downsample_pool=args.downsample_pool,
                     run_name=args.run_name,
                     heuristic=args.heuristic,
                     selection_strategy=args.selection_strategy,
@@ -255,6 +272,8 @@ class ActiveLearningTrainer():
                 metric_for_best_model="eval_eval_loss",
                 load_best_model_at_end=True,
                 greater_is_better=False,
+                regularized_loss=args.regularization_loss,
+                lambda_regularization=args.lambda_regularizer,
                 log_level="debug")
 
     def _reinit_linear_layer(self, module, score_init_std, seed):
@@ -347,6 +366,11 @@ class ActiveLearningTrainer():
                 N = len(scores_N)
                 final_pool['softrank_scores'] = self._get_softrank_samples(scores_N, self.al_config.gumbel_beta, N)
                 next_batch_ids = final_pool.nlargest(batch_size, 'softrank_scores')
+            elif selection_strategy == "sample-then-rank":
+                final_pool = final_pool.sample(frac=1).reset_index(drop=True)
+                final_pool['batch'] = np.arange(len(final_pool)) // 16
+                result = final_pool.groupby('batch').apply(lambda group: group.loc[group[heuristic].idxmax()])
+                next_batch_ids = result.reset_index(drop=True)
                 
         return next_batch_ids['id']
     
@@ -360,6 +384,21 @@ class ActiveLearningTrainer():
         sorted_indices = np.argsort(-scores_N)
         ranks_N = np.argsort(sorted_indices) + 1
         return self._get_power_samples(1 / ranks_N, beta, N)
+    
+    def _undersample_dataset(self, dataset, ratio, seed):
+        indices = list(range(len(dataset)))
+        size = int(ratio * len(indices))
+        indices = shuffle(indices, random_state=seed)
+        indices = indices[:size]
+        return self.build_dataset(dataset.df.iloc[indices])
+
+    def _downsample_pool(self, df_train, new_size):
+        indices = list(range(len(df_train)))
+        indices = shuffle(indices)
+        indices = indices[:new_size]
+        return self.build_dataset(df_train.iloc[indices])
+
+
 
 parser = HfArgumentParser(ActiveLearningArguments)
 script_args = parser.parse_args_into_dataclasses()[0]

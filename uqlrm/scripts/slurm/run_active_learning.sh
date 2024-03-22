@@ -25,30 +25,44 @@ huggingface-cli login --token $HUGGINGFACE_WRITETOKEN
 echo $1
 
 python ~/UQLRM/uqlrm/active_learning.py \
+--model_type "finetune_ens" \
+--trainer_type "finetune_ensemble_trainer" \
+--clusters_filepath "/users/lucelo/UQLRM/uqlrm/data/groups_reddit.txt" \
+--dataset_strategy "full_labeled_set" \
+--training_strategy "full_retrain" \
+--collator_type "reward_collator" \
 --output_dir /scratch-ssd/lucelo/active_learning/results/$1 \
 --run_name "$1" \
 --dataset_name "luckeciano/learning-to-summarize" \
 --per_device_eval_batch_size 64 \
---model_name "luckeciano/merged-gpt2-xl-sft-reddit" \
+--model_name "gpt2-medium" \
+--tokenizer_name "gpt2-medium" \
 --quantization_scheme "none" \
 --push_predictions_to_hub True \
 --predictions_dataset_hub "luckeciano/uqlrm_predictions" \
 --use_peft False \
+--peft_lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
 --undersample_eval True \
---undersample_ratio 0.1  \
+--undersample_val_ratio 0.01  \
+--undersample_infer_ratio 0.1 \
 --initial_sample_size 320 \
---ensemble_size 8 \
+--ensemble_size 5 \
 --active_batch_size 320 \
 --per_device_train_batch_size 64 \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \
---heuristic "Predicive Uncertainty" \
---selection_strategy "rank" \
---pool_size 4096 \
+--heuristic "Epistemic Uncertainty" \
+--selection_strategy "sample-then-rank" \
+--evaluation_strategy "steps" \
+--save_strategy "steps" \
+--eval_steps "100" \
+--save_steps "100" \
+--ignore_data_skip "True" \
+--pool_size 92000 \
+--downsample_pool "True" \
 --seed 66 \
---score_init_std 0.2 \
---learning_rate 1.41e-4 \
+--score_init_std 0.02 \
+--learning_rate 3e-5 \
 --bf16 True \
-# --train_split "high_conf_train_dedup" \
-# --test_split "high_conf_test_dedup" \
-# --valid_split "high_conf_valid_dedup"
+--gradient_checkpointing "True" \
+--gumbel_beta "0.5" \

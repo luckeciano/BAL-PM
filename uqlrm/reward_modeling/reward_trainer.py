@@ -5,11 +5,10 @@ import torch
 import torch.nn as nn
 import os
 import pandas as pd
-import time
 import numpy as np
 from packaging import version
-
-import warnings
+from tqdm import tqdm
+from metrics import compute_uncertanties
 
 from transformers import DataCollator, PreTrainedModel, PreTrainedTokenizerBase
 from transformers.integrations.deepspeed import deepspeed_init
@@ -338,6 +337,47 @@ class RewardTrainerWithCustomEval(RewardTrainer):
         for k, v in d.items():
             new_d[f"{run_name}/" + k] = v
         return new_d
+    
+    def inference(self,
+        eval_dataset: Optional[Dataset] = None,
+        return_features: Optional[bool] = False,
+    ) -> Dict[str, float]:
+        eval_dataloader = self.get_eval_dataloader(eval_dataset)
+
+        model = self._wrap_model(self.model, training=False, dataloader=eval_dataloader)
+
+        if len(self.accelerator._models) == 0 and model is self.model:
+            model = (
+                self.accelerator.prepare(model)
+                if self.is_deepspeed_enabled
+                else self.accelerator.prepare_model(model, evaluation_mode=True)
+            )
+        
+        model.eval()
+
+        all_preferences = []
+        all_ids = []
+        for step, inputs in tqdm(enumerate(eval_dataloader)):
+            loss, logits, labels = self.prediction_step(model, inputs, prediction_loss_only=False)
+            
+            preferences = logits[:, 0]
+            all_preferences.extend(preferences.cpu().numpy())
+            all_ids.extend(inputs['id'].cpu().numpy())
+        if return_features:
+            return loss, {
+                "preferences": all_preferences,
+                "id": all_ids
+            }
+        return loss
+    
+    def compute_uncertainties(self, runs, mode, epoch, all_preds):
+
+        ensemble_df = []
+        for run in runs:
+             ensemble_df.append(all_preds[run.run_name][epoch][f'eval_{mode}'])
+        print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
+        
+        return compute_uncertanties(ensemble_df)
 
     
     
