@@ -22,4 +22,6 @@ class RewardConfigWithSavedPredictions(RewardConfig):
 
     lambda_regularization: Optional[float] = 0.01
 
+    mc_dropout_realizations: Optional[int] = 5
+
 

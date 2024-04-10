@@ -159,18 +159,15 @@ class ActiveLearningTrainer():
                     trainer.add_callback(EvaluateAfterEpochCallback())
                     trainer.train()
                     predictions = {}
+                    
                     # Get preferences from buffer set
                     _, inference = trainer.inference(self.batch, return_features=True)
-                    preferences_np = np.array(inference['preferences']).flatten()
-                    ids = inference['id']
-                    predictions["eval_buffer"] = pd.DataFrame({"First": preferences_np, "Second": 1 - preferences_np, 'id': ids})
+                    predictions["eval_buffer"] = self._build_inference_df(inference)
                     
                     # Get preferences for inference sets
                     for eval_dataset_name, eval_dataset in self.inference_sets.items():
                         _, inference = trainer.inference(eval_dataset, return_features=True)
-                        preferences_np = np.array(inference['preferences']).flatten()
-                        ids = inference['id']
-                        predictions[f"eval_{eval_dataset_name}"] = pd.DataFrame({"First": preferences_np, "Second": 1 - preferences_np, 'id': ids})
+                        predictions[f"eval_{eval_dataset_name}"] = self._build_inference_df(inference)
                 else:
                     trainer.add_callback(StopCallback())
                     trainer.train(resume_from_checkpoint=(epoch != 0))
@@ -274,6 +271,7 @@ class ActiveLearningTrainer():
                 greater_is_better=False,
                 regularized_loss=args.regularization_loss,
                 lambda_regularization=args.lambda_regularizer,
+                mc_dropout_realizations=args.mc_dropout_realizations,
                 log_level="debug")
 
     def _reinit_linear_layer(self, module, score_init_std, seed):
@@ -397,6 +395,25 @@ class ActiveLearningTrainer():
         indices = shuffle(indices)
         indices = indices[:new_size]
         return self.build_dataset(df_train.iloc[indices])
+
+    def _build_inference_df(self, inference):
+        if self.script_args.model_type == "mc_dropout":
+            realizations = []
+            for realization in inference:
+                df = self._build_single_inference_df(realization)
+                realizations.append(df)
+            return realizations
+        else:
+            return self._build_single_inference_df(inference)
+           
+    def _build_single_inference_df(self, inference):
+        preferences_np = np.array(inference['preferences']).flatten()
+        rw_chosen_np = np.array(inference['rewards_chosen']).flatten() if 'rewards_chosen' in inference else None
+        rw_rejected_np = np.array(inference['rewards_rejected']).flatten() if 'rewards_rejected' in inference else None
+        ids = inference['id']
+        return pd.DataFrame({"First": preferences_np, "Second": 1 - preferences_np, 'id': ids, 
+                        'reward_chosen': rw_chosen_np, 'reward_rejected': rw_rejected_np})
+
 
 
 

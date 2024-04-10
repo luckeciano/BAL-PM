@@ -1,6 +1,6 @@
 from peft import LoraConfig
 from utils import build_model_quantization_config
-from modules import RewardMLP, VariationalEncoder
+from modules import RewardMLP, VariationalEncoder, MCDropoutRewardMLP
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 class RewardModelFactory:
@@ -8,7 +8,8 @@ class RewardModelFactory:
         self.models = {
             'finetune_ens': self._create_finetune_ensembles,
             'adapters_ens': self._create_adapters_ensembles,
-            'vatiational': self._create_variational_reward_model
+            'vatiational': self._create_variational_reward_model,
+            'mc_dropout': self._create_mc_dropout_reward_model
         }
 
     def create(self, model_type):
@@ -65,4 +66,13 @@ class RewardModelFactory:
                       activation_fn=script_args.activation_fn,
                       init_func=script_args.init_func,
                       weight_init=script_args.weight_init)
+        return model, None, None
+    
+    def _create_mc_dropout_reward_model(self, script_args):
+        model = MCDropoutRewardMLP(input_size=4096, 
+                      layers=script_args.layers,
+                      activation_fn=script_args.activation_fn,
+                      init_func=script_args.init_func,
+                      weight_init=script_args.weight_init,
+                      p=script_args.mc_dropout_rate)
         return model, None, None

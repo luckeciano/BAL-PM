@@ -3,3 +3,5 @@ from .reward_inferencer import RewardInferencer
 from .reward_model import build_reward_model
 from .adapter_ensemble_reward_trainer import AdapterEnsembleRewardTrainer
 from .variational_reward_trainer import VariationalRewardTrainer
+from .ddu_reward_trainer import DDURewardTrainer
+from .mc_dropout_reward_trainer import MCDropoutRewardTrainer

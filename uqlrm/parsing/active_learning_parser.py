@@ -49,6 +49,10 @@ class ActiveLearningArguments:
     init_func: Optional[str] = field(default='normal', metadata={"help": "weight init scheme"})
     weight_init: Optional[float] = field(default=0.01, metadata={"help": "weight init dispersion parameter"})
 
+    # MC Dropout
+    mc_dropout_rate: Optional[float] = field(default=0.2, metadata={"help": "mc dropout rate"})
+    mc_dropout_realizations: Optional[int] = field(default=5, metadata={"help": "number of samples from MC Dropout"})
+
     # Collator/Trainer/Dataset Type
     collator_type: Optional[str] = field(default='frozen_backbone_collator', metadata={"help": "collator type"})
     trainer_type: Optional[str] = field(default='adapters_ensemble_trainer', metadata={"help": "trainer type"})
