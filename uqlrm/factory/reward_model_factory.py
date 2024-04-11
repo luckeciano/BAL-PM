@@ -53,7 +53,7 @@ class RewardModelFactory:
         return model, tokenizer, peft_config
 
     def _create_adapters_ensembles(self, script_args):
-        model = RewardMLP(input_size=4096, 
+        model = RewardMLP(input_size=script_args.input_size, 
                       layers =script_args.layers,
                       activation_fn=script_args.activation_fn,
                       init_func=script_args.init_func,
@@ -61,7 +61,7 @@ class RewardModelFactory:
         return model, None, None
 
     def _create_variational_reward_model(self, script_args):
-        model = VariationalEncoder(input_size=4096, 
+        model = VariationalEncoder(input_size=script_args.input_size, 
                       layers=script_args.layers,
                       activation_fn=script_args.activation_fn,
                       init_func=script_args.init_func,
@@ -69,7 +69,7 @@ class RewardModelFactory:
         return model, None, None
     
     def _create_mc_dropout_reward_model(self, script_args):
-        model = MCDropoutRewardMLP(input_size=4096, 
+        model = MCDropoutRewardMLP(input_size=script_args.input_size, 
                       layers=script_args.layers,
                       activation_fn=script_args.activation_fn,
                       init_func=script_args.init_func,

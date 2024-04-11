@@ -14,7 +14,7 @@ from transformers import DataCollator, PreTrainedModel, PreTrainedTokenizerBase
 from transformers.integrations.deepspeed import deepspeed_init
 from transformers import TrainerCallback
 from transformers.trainer_callback import TrainerCallback
-from trl.trainer.training_configs import RewardConfig
+from trl.trainer import RewardConfig
 from transformers.trainer_utils import (
     PREFIX_CHECKPOINT_DIR,
     EvalLoopOutput,

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from trl.trainer.training_configs import RewardConfig
+from trl.trainer import RewardConfig
 
 
 @dataclass

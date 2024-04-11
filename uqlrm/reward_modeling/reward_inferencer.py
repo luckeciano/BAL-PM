@@ -8,7 +8,7 @@ from reward_modeling import RewardTrainerWithCustomEval
 from transformers import DataCollator, PreTrainedModel, PreTrainedTokenizerBase
 from transformers import TrainerCallback
 from transformers.trainer_callback import TrainerCallback
-from trl.trainer.training_configs import RewardConfig
+from trl.trainer import RewardConfig
 from transformers.trainer_utils import (
     EvalPrediction,
 )

@@ -15,14 +15,15 @@ dependencies:
     - datasets==2.16.1
     - evaluate==0.4.1
     - huggingface-hub==0.20.3
-    - tokenizers==0.15.1
+    - tokenizers==0.15.2
     - tqdm==4.66.1
-    - transformers==4.37.1
+    - transformers==4.39.3
     - peft==0.5.0
     - bitsandbytes==0.41.1
     - scipy==1.11.3
     - scikit-learn==1.3.2
-    - trl==0.7.2
+    - trl==0.8.1
     - wandb==0.15.12
     - jupyter
     - sentencepiece==0.1.99
+    - ai2-olmo==0.2.5

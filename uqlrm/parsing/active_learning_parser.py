@@ -44,6 +44,7 @@ class ActiveLearningArguments:
     lambda_regularizer: Optional[float] = field(default=0.01, metadata={"help": "regularizer strength"})
 
     # Model Architecture (For MLP and VI)
+    input_size: Optional[int] = field(default=4096, metadata={"help": "number of input features"})
     layers: Optional[str] = field(default='[2048, 256]', metadata={"help": "mlp layers"})
     activation_fn: Optional[str] = field(default='tanh', metadata={"help": "activation function"})
     init_func: Optional[str] = field(default='normal', metadata={"help": "weight init scheme"})
