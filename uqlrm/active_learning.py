@@ -37,6 +37,9 @@ class ActiveLearningTrainer():
             data = f.read()
             self.groups_dict = ast.literal_eval(data)
 
+        if script_args.heuristic == "llm_uncertainty":
+            self.llm_uncertainties = pd.read_csv(self.script_args.llm_unc_filepath)
+
         self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
 
         train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, self.tokenizer)
@@ -312,6 +315,12 @@ class ActiveLearningTrainer():
         if return_uncertainty:
             acquisition_fn = {'Epistemic Uncertainty': epistemic, 'Predictive Uncertainty': predictive, 'Aleatoric Uncertainty': aleatoric, 'Variance': var_predictions, 'id': ids}
 
+            if self.script_args.heuristic == "llm_uncertainty":
+                ids_df = ids.to_frame()
+                unc_df = self.llm_uncertainties[['id', self.script_args.llm_unc_type]]
+                acquisition_fn[script_args.heuristic] = ids_df.merge(unc_df, on='id', how='inner')[self.script_args.llm_unc_type].rename(script_args.heuristic)
+                #TODO Add id column as index and return only heuristic
+        
         return acquisition_fn
     
     def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool, selection_strategy): 
@@ -416,9 +425,9 @@ class ActiveLearningTrainer():
 
 
 
+if __name__ == "__main__":
+    parser = HfArgumentParser(ActiveLearningArguments)
+    script_args = parser.parse_args_into_dataclasses()[0]
 
-parser = HfArgumentParser(ActiveLearningArguments)
-script_args = parser.parse_args_into_dataclasses()[0]
-
-trainer = ActiveLearningTrainer(script_args)
-trainer.train()
+    trainer = ActiveLearningTrainer(script_args)
+    trainer.train()

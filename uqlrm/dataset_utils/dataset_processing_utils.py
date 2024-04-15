@@ -14,9 +14,25 @@ def process_and_filter_dataset(script_args, dataset, tokenizer):
     print(f"Size of the set before processing: {len(dataset)}, after processing: {len(final_dataset)}")
     return final_dataset
 
+def create_multiples_datasets(args, tokenizer=None):
+    train_set, valid_set, test_set, ood_set = {}, {}, {}, {}
+    assert isinstance(args.dataset_name, list), "To create multiples dataset, you must pass a list of names."
+    for dataset_name in args.dataset_name:
+        train, valid, test, ood = create_single_dataset(args, dataset_name, tokenizer)
+
+        train_set[dataset_name] = train
+        valid_set[dataset_name] = valid
+        test_set[dataset_name] = test
+        ood_set[dataset_name] = ood
+
+    return train_set, valid_set, test_set, ood_set
+
 def create_datasets(args, tokenizer=None):
+    return create_single_dataset(args, args.dataset_name, tokenizer)
+
+def create_single_dataset(args, dataset_name, tokenizer=None):
     dataset = load_dataset(
-        args.dataset_name,
+        dataset_name,
         #use_auth_token=True,
         num_proc=args.num_workers if not args.streaming else None
     )

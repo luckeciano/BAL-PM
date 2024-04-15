@@ -54,13 +54,19 @@ class ActiveLearningArguments:
     mc_dropout_rate: Optional[float] = field(default=0.2, metadata={"help": "mc dropout rate"})
     mc_dropout_realizations: Optional[int] = field(default=5, metadata={"help": "number of samples from MC Dropout"})
 
+    # LLM Uncertainty Arguments
+    llm_unc_type: Optional[str] = field(default='Max Entropy', metadata={"help": "which stats to use for LLM uncertainty"})
+    llm_unc_filepath: Optional[str] = field(
+        default=None, metadata={"help": "The filepath for llm uncertainties."}
+    )
+
     # Collator/Trainer/Dataset Type
     collator_type: Optional[str] = field(default='frozen_backbone_collator', metadata={"help": "collator type"})
     trainer_type: Optional[str] = field(default='adapters_ensemble_trainer', metadata={"help": "trainer type"})
     dataset_type: Optional[str] = field(default='pandas', metadata={"help": "dataset type"})
 
 
-    dataset_name: Optional[str] = field(default="luckeciano/learning-to-summarize", metadata={"help": "the dataset name"})
+    dataset_name: Optional[str] = field(default="luckeciano/learning-to-summarize", metadata={"help": "the dataset names"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "Dataset text column name"})
     preprocess_fn: Optional[str] = field(default="redditcnn_preprocess_function", metadata={"help": "Which preprocess fn to apply"})
     train_split: Optional[str] = field(default="train", metadata={"help": "the split to use"})
