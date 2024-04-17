@@ -39,6 +39,11 @@ class ActiveLearningTrainer():
 
         if script_args.heuristic == "llm_uncertainty":
             self.llm_uncertainties = pd.read_csv(self.script_args.llm_unc_filepath)
+        
+        if script_args.log_batch_indices:
+            import csv
+            self.batch_idx_file = open(script_args.batch_idx_filepath, 'w', newline='')
+            self.batch_idx_writer = csv.writer(self.batch_idx_file)
 
         self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
 
@@ -196,6 +201,11 @@ class ActiveLearningTrainer():
             nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, \
                                     self.al_config.active_batch_size, self.df_train, self.al_config.selection_strategy).to_frame()
             
+            # Log Batch Ids
+            if script_args.log_batch_indices:
+                batch_ids = np.array(nxt_batch_ids.values, dtype=int).flatten()
+                self.batch_idx_writer.writerow(batch_ids)
+            
             # Merge with current df and remove points from it
             new_batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
             if self.al_config.dataset_strategy == 'full_labeled_set':
@@ -218,6 +228,10 @@ class ActiveLearningTrainer():
             # The goal is to clean the previous computational graph and prevend headaches related to continuously loading new checkpoints
             self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
     
+        # Close Batch Ids Files
+        if script_args.log_batch_indices:
+            self.batch_idx_file.close()
+        
         # Upload Predictions to Hub
         if self.script_args.push_predictions_to_hub:
             full_dir = os.path.join(self.script_args.output_dir, "predictions")
@@ -376,7 +390,7 @@ class ActiveLearningTrainer():
             elif selection_strategy == "sample-then-rank":
                 final_pool = final_pool.sample(frac=1).reset_index(drop=True)
                 final_pool['batch'] = np.arange(len(final_pool)) // 16
-                result = final_pool.groupby('batch').apply(lambda group: group.loc[group[heuristic].idxmax()])
+                result = final_pool.groupby('batch').apply(lambda group: group.loc[group[heuristic].idxmax()]).sample(n=batch_size)
                 next_batch_ids = result.reset_index(drop=True)
                 
         return next_batch_ids['id']

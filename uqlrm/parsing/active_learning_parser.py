@@ -65,6 +65,10 @@ class ActiveLearningArguments:
     trainer_type: Optional[str] = field(default='adapters_ensemble_trainer', metadata={"help": "trainer type"})
     dataset_type: Optional[str] = field(default='pandas', metadata={"help": "dataset type"})
 
+    # Logging Ids
+    log_batch_indices: Optional[bool] = field(default=False, metadata={"help": "whether to log the indices of each active batch"})
+    batch_idx_filepath: Optional[str] = field(default=None, metadata={"help": "batch indices filepath"})
+
 
     dataset_name: Optional[str] = field(default="luckeciano/learning-to-summarize", metadata={"help": "the dataset names"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "Dataset text column name"})
