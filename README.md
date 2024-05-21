@@ -1,2 +1,1 @@
-# UQLRM
-Uncertainty Quantification for Language Reward Models
+# Deep Bayesian Active Learning for Preference Modeling in Large Language Models

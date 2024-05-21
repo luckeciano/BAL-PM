@@ -9,3 +9,7 @@ results
 *.eps
 *.gif
 *.pyc
+*.png
+*.pdf
+*.txt
+*.tex
