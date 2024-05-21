@@ -1,5 +1,6 @@
+import scipy.special
 from configs import ActiveLearningConfig, RewardConfigWithSavedPredictions
-from dataset_utils import create_datasets
+from dataset_utils import create_datasets, create_features_dataset
 from parsing import ActiveLearningArguments
 from utils import StopCallback, EvaluateAfterEpochCallback, push_predictions_to_hub
 from factory import RewardModelFactory, DataCollatorFactory, TrainerFactory, DatasetFactory
@@ -8,9 +9,10 @@ from metrics import compute_accuracy
 import pandas as pd
 import numpy as np
 import torch
+import gc
+import tracemalloc
 import os
-from tqdm import tqdm
-from torch.utils.data import Subset, DataLoader
+import utils
 from sklearn.utils import shuffle
 from sklearn.metrics import log_loss
 from transformers.trainer_callback import CallbackHandler, TrainerState, TrainerControl, DefaultFlowCallback, EarlyStoppingCallback
@@ -33,9 +35,10 @@ class ActiveLearningTrainer():
         # Build Active Learning Config
         self.al_config = self._build_active_learning_config(script_args)
 
-        with open(self.script_args.clusters_filepath, 'r') as f:
-            data = f.read()
-            self.groups_dict = ast.literal_eval(data)
+        if script_args.selection_strategy == 'clustered_rank':
+            with open(self.script_args.clusters_filepath, 'r') as f:
+                data = f.read()
+                self.groups_dict = ast.literal_eval(data)
 
         if script_args.heuristic == "llm_uncertainty":
             self.llm_uncertainties = pd.read_csv(self.script_args.llm_unc_filepath)
@@ -105,10 +108,8 @@ class ActiveLearningTrainer():
 
         # Build Reward Modeling Configs
         self.runs = []
-        self.all_predictions = {}
         for i in range(self.al_config.ensemble_size):
                 self.runs.append(self._build_reward_config(script_args, f"{script_args.run_name}_{i}", self.num_epochs))
-                self.all_predictions[f"{script_args.run_name}_{i}"] = {}
 
         self._check_parameters(self.al_config, self.runs)
 
@@ -132,111 +133,121 @@ class ActiveLearningTrainer():
 
     def train(self):
         seed = 0
-        for epoch in range(self.num_epochs):
-            # For each model, train separately in the sampled set:
-            for run in self.runs:
-
-                if epoch == 0 or self.al_config.training_strategy == "full_retrain":
-                    self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
-                    
-                    if script_args.model_type == "finetune_ens":
-                        # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
-                        # Also requires different seeds, otherwise it samples the same initial weights
-                        self._reinit_linear_layer(self.base_model.score, self.script_args.score_init_std, seed)
-                    seed += 1   
-
-
-                reward_collator = DataCollatorFactory().create(self.script_args.collator_type)(self.tokenizer, max_length=run.max_length)
-
-                # Shuffle Dataset for new training
-                self.batch.shuffle()
-
-                trainer = TrainerFactory().create(self.script_args.trainer_type)(
-                    model=self.base_model,
-                    tokenizer=self.tokenizer,
-                    collator=reward_collator,
-                    run_args=run,
-                    train_dataset=self.batch,
-                    eval_datasets=self.eval_sets,
-                    peft_config=self.peft_config,
-                )
-
-
-                if self.al_config.training_strategy == "full_retrain":
-                    trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=3))
-                    trainer.add_callback(EvaluateAfterEpochCallback())
-                    trainer.train()
-                    predictions = {}
-                    
-                    # Get preferences from buffer set
-                    _, inference = trainer.inference(self.batch, return_features=True)
-                    predictions["eval_buffer"] = self._build_inference_df(inference)
-                    
-                    # Get preferences for inference sets
-                    for eval_dataset_name, eval_dataset in self.inference_sets.items():
-                        _, inference = trainer.inference(eval_dataset, return_features=True)
-                        predictions[f"eval_{eval_dataset_name}"] = self._build_inference_df(inference)
-                else:
-                    trainer.add_callback(StopCallback())
-                    trainer.train(resume_from_checkpoint=(epoch != 0))
-                    predictions = trainer.predictions
-
-                global_step = trainer.state.global_step 
+        # tracemalloc.start() 
+        for epoch in range(self.num_epochs):       
+            self.train_loop(epoch, seed)
             
-                self.all_predictions[run.run_name][epoch] = predictions
-                self.run_dir = trainer.run_dir
-
-            self.state.global_step = epoch
-            # Generate Ensemble Predictions and Eval/Wandb
-            for mode in self.inference_sets.keys():
-                if mode == "train":
-                    acquisition_fn = self._eval_uncertainty(mode, epoch, self.all_predictions, trainer, return_uncertainty=True)
-                else:
-                    self._eval_uncertainty(mode, epoch, self.all_predictions, trainer)
-
-            # Eval ensemble for the current training buffer
-            self._eval_uncertainty("buffer", epoch, self.all_predictions, trainer)
-
-            # Select new batch points based on uncertainty
-            nxt_batch_ids = self._select_next_batch_ids(acquisition_fn, self.al_config.heuristic, \
-                                    self.al_config.active_batch_size, self.df_train, self.al_config.selection_strategy).to_frame()
+            # snapshot = tracemalloc.take_snapshot() 
+            # top_stats = snapshot.statistics('lineno') 
             
-            # Log Batch Ids
-            if script_args.log_batch_indices:
-                batch_ids = np.array(nxt_batch_ids.values, dtype=int).flatten()
-                self.batch_idx_writer.writerow(batch_ids)
-            
-            # Merge with current df and remove points from it
-            new_batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
-            if self.al_config.dataset_strategy == 'full_labeled_set':
-                # Add new batch to buffer and shuffle rows
-                self.batch = pd.concat([self.batch.df, new_batch]).sample(frac=1).reset_index(drop=True)
-                self.batch = self.build_dataset(self.batch)
-            elif self.al_config.dataset_strategy == 'batch_only':
-                self.batch = self.build_dataset(new_batch)
-
-            # Remove these rows from initial dataset
-            all_rows = self.df_train.merge(nxt_batch_ids, how='outer', on='id', indicator=True)
-            self.df_train = all_rows[all_rows['_merge'] == 'left_only']
-            self.df_train = self.df_train.drop(columns=['_merge'])
-
-            if self.al_config.downsample_pool:
-                self.inference_sets['train'] = self._downsample_pool(self.df_train, 16 * self.al_config.active_batch_size)
-
-            del self.base_model, self.tokenizer
-            # For each epoch, re-instatiate the base_model after deleting previous instance
-            # The goal is to clean the previous computational graph and prevend headaches related to continuously loading new checkpoints
-            self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
+            # for stat in top_stats[:10]: 
+            #     print(stat)
     
         # Close Batch Ids Files
         if script_args.log_batch_indices:
             self.batch_idx_file.close()
         
         # Upload Predictions to Hub
-        if self.script_args.push_predictions_to_hub:
-            full_dir = os.path.join(self.script_args.output_dir, "predictions")
-            push_predictions_to_hub(full_dir, self.script_args.predictions_dataset_hub)
+        # if self.script_args.push_predictions_to_hub:
+        #     full_dir = os.path.join(self.script_args.output_dir, "predictions")
+        #     push_predictions_to_hub(full_dir, self.script_args.predictions_dataset_hub)
         
+    def train_loop(self, epoch, seed):
+        # For each model, train separately in the sampled set:
+        all_predictions = {}
+        for run in self.runs:
+
+            if epoch == 0 or self.al_config.training_strategy == "full_retrain":
+                self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
+                
+                if script_args.model_type == "finetune_ens":
+                    # Needs to reinit the score layer because the cached version will always return the same weights for every ensemble member
+                    # Also requires different seeds, otherwise it samples the same initial weights
+                    self._reinit_linear_layer(self.base_model.score, self.script_args.score_init_std, seed)
+                seed += 1   
+
+
+            reward_collator = DataCollatorFactory().create(self.script_args.collator_type)(self.tokenizer, max_length=run.max_length)
+
+            # Shuffle Dataset for new training
+            self.batch.shuffle()
+
+            trainer = TrainerFactory().create(self.script_args.trainer_type)(
+                model=self.base_model,
+                tokenizer=self.tokenizer,
+                collator=reward_collator,
+                run_args=run,
+                train_dataset=self.batch,
+                eval_datasets=self.eval_sets,
+                peft_config=self.peft_config,
+            )
+
+
+            if self.al_config.training_strategy == "full_retrain":
+                trainer.add_callback(EarlyStoppingCallback(early_stopping_patience=self.script_args.es_patience))
+                trainer.add_callback(EvaluateAfterEpochCallback())
+                trainer.train()
+                predictions = {}
+                
+                # Get preferences from buffer set
+                _, inference = trainer.inference(self.batch, return_features=True)
+                predictions["eval_buffer"] = self._build_inference_df(inference)
+                
+                # Get preferences for inference sets
+                for eval_dataset_name, eval_dataset in self.inference_sets.items():
+                    _, inference = trainer.inference(eval_dataset, return_features=True)
+                    predictions[f"eval_{eval_dataset_name}"] = self._build_inference_df(inference)
+            else:
+                trainer.add_callback(StopCallback())
+                trainer.train(resume_from_checkpoint=(epoch != 0))
+                predictions = trainer.predictions
+        
+            all_predictions[run.run_name] = predictions
+
+        self.state.global_step = epoch
+        # Generate Ensemble Predictions and Eval/Wandb
+        
+        for mode in self.inference_sets.keys():
+            if mode == "train":
+                acquisition_fn = self._eval_uncertainty(mode, epoch, all_predictions, trainer, return_uncertainty=True)
+            else:
+                self._eval_uncertainty(mode, epoch, all_predictions, trainer)
+
+        # Eval ensemble for the current training buffer
+        self._eval_uncertainty("buffer", epoch, all_predictions, trainer)
+
+        # Select new batch points based on uncertainty
+        nxt_batch_ids = self._select_next_batch_ids(epoch, acquisition_fn, self.al_config.heuristic, \
+                                self.al_config.active_batch_size, self.df_train, self.al_config.selection_strategy).to_frame()
+        
+        # Log Batch Ids
+        if script_args.log_batch_indices:
+            batch_ids = np.array(nxt_batch_ids.values, dtype=int).flatten()
+            self.batch_idx_writer.writerow(batch_ids)
+        
+        # Merge with current df and remove points from it
+        new_batch = nxt_batch_ids.merge(self.df_train, on='id', how='inner')
+        if self.al_config.dataset_strategy == 'full_labeled_set':
+            # Add new batch to buffer and shuffle rows
+            self.batch.extend(new_batch)
+            del new_batch
+        elif self.al_config.dataset_strategy == 'batch_only':
+            self.batch = self.build_dataset(new_batch)
+
+        # # Remove these rows from initial dataset
+        #new_df_train = pd.merge(self.df_train, nxt_batch_ids, on='id', how='outer', indicator=True).query('_merge=="left_only"').drop(columns=['_merge'])
+        self.df_train = self.df_train[~self.df_train['id'].isin(nxt_batch_ids['id'])]
+
+        if self.al_config.downsample_pool:
+            self.inference_sets['train'] = self._downsample_pool(self.df_train, 16 * self.al_config.active_batch_size)
+
+        del nxt_batch_ids, inference, acquisition_fn, all_predictions, self.base_model, self.tokenizer, trainer
+        torch.cuda.empty_cache()
+        gc.collect()
+        # For each epoch, re-instatiate the base_model after deleting previous instance
+        # The goal is to clean the previous computational graph and prevend headaches related to continuously loading new checkpoints
+        self.base_model, self.tokenizer, self.peft_config = RewardModelFactory().create(self.script_args.model_type)(self.script_args)
+
 
     def _build_active_learning_config(self, args) -> ActiveLearningConfig:
             return ActiveLearningConfig(
@@ -297,7 +308,7 @@ class ActiveLearningTrainer():
             module.bias.data.zero_()
 
     def _eval_uncertainty(self, mode, epoch, all_preds, trainer, return_uncertainty=False):
-        epistemic, predictive, aleatoric, ens_probs, var_predictions, ids = trainer.compute_uncertainties(self.runs, mode, epoch, all_preds)
+        epistemic, predictive, aleatoric, ens_probs, var_predictions, ids = trainer.compute_uncertainties(self.runs, mode, all_preds)
         
         avg_ep = epistemic.mean()
         avg_pred = predictive.mean()
@@ -337,7 +348,7 @@ class ActiveLearningTrainer():
         
         return acquisition_fn
     
-    def _select_next_batch_ids(self, acquisition_fn, heuristic, batch_size, current_pool, selection_strategy): 
+    def _select_next_batch_ids(self, epoch, acquisition_fn, heuristic, batch_size, current_pool, selection_strategy): 
         if heuristic == 'random':
             pool_size = len(current_pool)
             next_batch_ids = current_pool.sample(n = min(batch_size, pool_size))
@@ -353,22 +364,7 @@ class ActiveLearningTrainer():
                 normalized_probs = final_pool[heuristic] / final_pool[heuristic].sum()
                 next_batch_ids = final_pool.sample(n=batch_size, replace=False, weights=normalized_probs)
             elif selection_strategy == 'clustered_rank':
-                #TODO improve implementation
-                num_collisions = 0
-                final_pool.sort_values(heuristic, ascending=False, inplace=True)
-                chosen_groups = set()
-                next_batch_ids = pd.DataFrame(columns=final_pool.columns)
-                for _, row in final_pool.iterrows():
-                    group = self.groups_dict[row['id']]
-                    if group not in chosen_groups:
-                        chosen_groups.add(group)
-                        next_batch_ids = pd.concat([next_batch_ids, pd.DataFrame([row])], ignore_index=True)
-                    else:
-                        num_collisions += 1
-                    
-                    if len(next_batch_ids) == batch_size:
-                        print(f"Num collisions: {num_collisions}")
-                        break
+                next_batch_ids = self._cluster_rank(heuristic, final_pool, batch_size)
             elif selection_strategy == "softmax_bald":
                 assert self.al_config.gumbel_beta > 0, "Gumbel's beta must be greater than zero"
                 scores_N = final_pool[heuristic]
@@ -377,9 +373,18 @@ class ActiveLearningTrainer():
                 next_batch_ids = final_pool.nlargest(batch_size, 'softmax_scores')
             elif selection_strategy == "power_bald":
                 assert self.al_config.gumbel_beta > 0, "Gumbel's beta must be greater than zero"
+                if self.script_args.gumbel_beta_annealing:
+                    annealing_epochs = self.script_args.gumbel_beta_annealing_epochs
+                    if epoch < self.script_args.gumbel_beta_annealing_start_epoch:
+                        self.gumbel_beta = 0.25
+                    elif epoch < annealing_epochs:
+                        self.gumbel_beta += (self.al_config.gumbel_beta - 0.25) / annealing_epochs
+                else:
+                    self.gumbel_beta = self.al_config.gumbel_beta
                 scores_N = final_pool[heuristic]
                 N = len(scores_N)
-                final_pool['power_scores'] = self._get_power_samples(scores_N, self.al_config.gumbel_beta, N)
+                print(f"Gumbel Beta: {self.gumbel_beta}")
+                final_pool['power_scores'] = self._get_power_samples(scores_N, self.gumbel_beta, N)
                 next_batch_ids = final_pool.nlargest(batch_size, 'power_scores')
             elif selection_strategy == "softrank_bald":
                 assert self.al_config.gumbel_beta > 0, "Gumbel's beta must be greater than zero"
@@ -392,26 +397,248 @@ class ActiveLearningTrainer():
                 final_pool['batch'] = np.arange(len(final_pool)) // 16
                 result = final_pool.groupby('batch').apply(lambda group: group.loc[group[heuristic].idxmax()]).sample(n=batch_size)
                 next_batch_ids = result.reset_index(drop=True)
+            elif selection_strategy == "state-entropy":
+                device = next(self.base_model.parameters()).device
+                state_entropies = self._compute_state_entropy(k=self.script_args.state_ent_k, device=device)
+                final_pool = final_pool.merge(state_entropies, on='id', how='inner')
+                final_pool['final_score'] = final_pool[heuristic] + self.script_args.state_ent_beta * final_pool['state_entropy']
+                next_batch_ids = self._cluster_rank('final_score', final_pool, batch_size)
+                #TODO Implement state entropy conditional to current data and then conditional on epistemic
+            elif selection_strategy == "batch-state-entropy":
+                device = next(self.base_model.parameters()).device
+                pool = self._compute_batch_state_entropy(final_pool[['id', heuristic]], heuristic, self.batch, k=self.script_args.state_ent_k, device=device)
+                next_batch_ids = pd.DataFrame(columns=['id']).astype({"id": int})
+                
+                if self.script_args.no_uncertainty:
+                    pool[heuristic] = torch.zeros(pool[heuristic].shape).to(device)
+
+                batch_stats = {}
+                for _ in range(batch_size):
+                    pool['ent_dist_term'] = torch.log(2.0 * pool['dists'] + 0.0001)
+                    pool['ent_digamma_term'] = torch.digamma(pool['n_batch'] + 1.0)
+                    pool['state_entropy'] = pool['ent_dist_term'] - (pool['ent_digamma_term'] / self.script_args.state_ent_d)
+                    if self.script_args.normalize_entropy:
+                        pool['state_entropy'] = (pool['state_entropy'] - pool['state_entropy'].mean()) / pool['state_entropy'].std()
+                    
+                    pool['entropy_score'] = self.script_args.state_ent_beta * pool['state_entropy']
+                    pool['final_score'] = pool[heuristic] + pool['entropy_score']
+                    pool['uncertainty_score_ratio'] = pool[heuristic] / pool['final_score']
+                    
+                    max_score_index = torch.argmax(pool['final_score'])
+                    # Create a mask for all rows except the one with the maximum final_score
+                    mask = torch.ones(len(pool['final_score']), dtype=torch.bool)
+                    mask[max_score_index] = 0
+
+                    # Select the row with the maximum final_score
+                    row = {k: v[max_score_index].unsqueeze(0) for k, v in pool.items()}
+
+                    for k, v in row.items():
+                        if k not in ['ent_dist_term', 'ent_digamma_term', 'state_entropy', 'entropy_score' , 'final_score', 'uncertainty_score_ratio', heuristic]:
+                            continue
+                        if k not in batch_stats:
+                            batch_stats[k] = [v]
+                        else:
+                            batch_stats[k].append(v)
+
+                    # Drop the row from the pool
+                    pool = {k: v[mask] for k, v in pool.items()}
+                    
+                    # row = pool[pool['final_score'] == pool['final_score'].max()]
+                    row_df = pd.DataFrame({'id': row['id'].cpu().numpy()})
+                    next_batch_ids = pd.concat([next_batch_ids, row_df], ignore_index=True)
+
+                    # Update n batches
+                    fts = pool['features'] # or drop other columns...
+                    new_point = row['features']
+                    n_batch = utils.compute_nbatch(pool['dists'], fts, new_point, device)
+                    pool['n_batch'] =  pool['n_batch'] + n_batch
+
+                logs = {}
+                for k, v in batch_stats.items():
+                    v_cat = torch.cat(v)
+                    logs[f"batch_stats/{k}_max"] = torch.max(v_cat).cpu().numpy()
+                    logs[f"batch_stats/{k}_min"] = torch.min(v_cat).cpu().numpy()
+                    logs[f"batch_stats/{k}_p95"] = torch.quantile(v_cat, 0.95).cpu().numpy()
+                    logs[f"batch_stats/{k}_p5"] = torch.quantile(v_cat, 0.05).cpu().numpy()
+                    logs[f"batch_stats/{k}_p50"] = torch.quantile(v_cat, 0.50).cpu().numpy()
+                
+                self.callback_handler.on_log(self.al_config, self.state, self.control, logs)
+
+            elif selection_strategy == "batch-state-entropy-v2":
+                device = next(self.base_model.parameters()).device
+                next_batch_ids = self._compute_batch_state_entropy_v2(final_pool[['id', heuristic]], heuristic, self.batch, ent_k=self.script_args.state_ent_k, device=device, batch_size=batch_size)
+                
+            del final_pool
+                    
                 
         return next_batch_ids['id']
+    
+    def _cluster_rank(self, heuristic, final_pool, batch_size):
+        #TODO improve implementation
+        num_collisions = 0
+        final_pool.sort_values(heuristic, ascending=False, inplace=True)
+        chosen_groups = set()
+        next_batch_ids = pd.DataFrame(columns=final_pool.columns)
+        for _, row in final_pool.iterrows():
+            group = self.groups_dict[row['id']]
+            if group not in chosen_groups:
+                chosen_groups.add(group)
+                next_batch_ids = pd.concat([next_batch_ids, pd.DataFrame([row])], ignore_index=True)
+            else:
+                num_collisions += 1
+            
+            if len(next_batch_ids) == batch_size:
+                print(f"Num collisions: {num_collisions}")
+                break
+        
+        return next_batch_ids
     
     def _get_softmax_samples(self, scores_N, beta, N):
         return scores_N + scipy.stats.gumbel_r.rvs(loc=0, scale=1 / beta, size=N, random_state=None)
     
     def _get_power_samples(self, scores_N, beta, N):
-        return self._get_softmax_samples(np.log(scores_N), beta, N)
+        return self._get_softmax_samples(np.log(scores_N + 0.00001), beta, N)
 
     def _get_softrank_samples(self, scores_N, beta, N):
         sorted_indices = np.argsort(-scores_N)
         ranks_N = np.argsort(sorted_indices) + 1
         return self._get_power_samples(1 / ranks_N, beta, N)
     
+    def _compute_state_entropy(self, k, device):
+        if getattr(self, "state_features", None) is None:
+            self.state_features = create_features_dataset(self.script_args.state_features_dataset_name)
+        fts = self.state_features.drop(columns='id')
+        fts_pt = torch.Tensor(fts.values).to(device)
+        ids_entropies = self.state_features['id'].astype(int).to_frame()
+        dists = utils.find_kth_nearest_dists(fts_pt, k, device=device).cpu().numpy()
+        state_entropies = np.log(2.0 * dists + 0.0001)
+        norm_state_entropies = (state_entropies - np.mean(state_entropies)) / np.std(state_entropies)
+        ids_entropies['state_entropy'] = norm_state_entropies
+        ids_entropies = pd.concat([ids_entropies, fts], axis=1)
+        return ids_entropies
+    
+    def _compute_batch_state_entropy(self, final_pool, heuristic, batch, k, device):
+        if getattr(self, "state_features", None) is None:
+            self.state_features = create_features_dataset(self.script_args.state_features_dataset_name)
+
+        pool = final_pool.merge(self.state_features, on='id', how='inner')
+        batch_fts = batch.get_df()[['id']].merge(self.state_features, on='id', how='inner').drop(columns='id').values
+        batch_fts_pt = torch.Tensor(batch_fts).to(device)
+        fts = pool.drop(columns=final_pool.columns)
+        
+        if self.script_args.normalize_state_features:
+            mean = fts.mean()
+            std = fts.std()
+            fts = (fts - mean / std)
+        
+        fts_pt = torch.Tensor(fts.values).to(device)
+        ids = torch.Tensor(pool['id']).to(device, dtype=torch.int64)
+        uncertainties = torch.Tensor(pool[heuristic]).to(device)
+        dists = utils.find_kth_nearest_dists(fts_pt, k, device=device)
+        n_batch = utils.compute_nbatch(dists, fts_pt, batch_fts_pt, device)
+        res = {'id': ids, heuristic: uncertainties, 'dists': dists, 'n_batch': n_batch, 'features': fts_pt}
+        return res
+    
+    def _compute_batch_state_entropy_v2(self, final_pool, heuristic, batch, ent_k, device, batch_size):
+        if getattr(self, "state_features", None) is None:
+            self.state_features = create_features_dataset(self.script_args.state_features_dataset_name)
+
+        pool = final_pool.merge(self.state_features, on='id', how='inner')
+        batch_fts = batch.get_df()[['id']].merge(self.state_features, on='id', how='inner').drop(columns='id').values
+        batch_fts_pt = torch.Tensor(batch_fts).to(device, dtype=torch.float64)
+        fts = pool.drop(columns=final_pool.columns)
+        
+        if self.script_args.normalize_state_features:
+            mean = fts.mean()
+            std = fts.std()
+            fts = (fts - mean / std)
+        
+        fts_pt = torch.Tensor(fts.values).to(device, dtype=torch.float64)
+        ids = torch.Tensor(pool['id']).to(device, dtype=torch.int64)
+        uncertainties = torch.Tensor(pool[heuristic]).to(device)
+
+        dists = utils.compute_batch_dists(fts_pt, batch_fts_pt, device=device) # (N_pool + N_batch, N_pool + N_batch)
+
+        pool = {'id': ids, heuristic: uncertainties, 'dists': dists, 'pool_fts': fts_pt} 
+
+        next_batch_ids = pd.DataFrame(columns=['id']).astype({"id": int})
+                
+        if self.script_args.no_uncertainty:
+            pool[heuristic] = torch.zeros(pool[heuristic].shape).to(device)
+
+        batch_stats = {}
+        with torch.no_grad():
+            for _ in range(batch_size):
+                torch.cuda.empty_cache()
+                gc.collect()
+
+                # compute knns
+                topk_dists, _ = torch.topk(pool['dists'], ent_k, largest=False) # (N_pool, )
+
+                pool['state_entropy'] = torch.log(2.0 * topk_dists[:, ent_k-1] + 0.0001)
+                if self.script_args.normalize_entropy:
+                    pool['state_entropy'] = (pool['state_entropy'] - pool['state_entropy'].mean()) / pool['state_entropy'].std()
+                
+                pool['entropy_score'] = self.script_args.state_ent_beta * pool['state_entropy']
+                pool['final_score'] = pool[heuristic] + pool['entropy_score']
+                pool['uncertainty_score_ratio'] = pool[heuristic] / pool['final_score']
+                
+                max_score_index = torch.argmax(pool['final_score'])
+                # Create a mask for all rows except the one with the maximum final_score
+                mask = torch.ones(len(pool['final_score']), dtype=torch.bool)
+                mask[max_score_index] = 0
+
+                # Select the row with the maximum final_score
+                row = {k: v[max_score_index].unsqueeze(0) for k, v in pool.items()}
+
+                for k, v in row.items():
+                    if k not in ['state_entropy', 'entropy_score' , 'final_score', 'uncertainty_score_ratio', heuristic]:
+                        continue
+                    if k not in batch_stats:
+                        batch_stats[k] = [v]
+                    else:
+                        batch_stats[k].append(v)
+
+                del pool['final_score'], pool['uncertainty_score_ratio'], pool['state_entropy']
+
+                # drop row from pool
+                old_pool = pool
+                pool = {k: v[mask] for k, v in old_pool.items()}
+                del old_pool
+                # compute dists for new pool and row
+                acquired_pt_dists = utils.compute_batch_dists(pool['pool_fts'], row['pool_fts'], device=device) # (N_pool, 1)
+
+                # add column to dists
+                old_pool_dists = pool['dists']
+                pool['dists'] = torch.cat((old_pool_dists, acquired_pt_dists), dim=1)
+                
+                
+                row_df = pd.DataFrame({'id': row['id'].cpu().numpy()})
+                next_batch_ids = pd.concat([next_batch_ids, row_df], ignore_index=True)
+                
+                del row, old_pool_dists
+                
+
+        logs = {}
+        for k, v in batch_stats.items():
+            v_cat = torch.cat(v).float()
+            logs[f"batch_stats/{k}_max"] = torch.max(v_cat).cpu().numpy()
+            logs[f"batch_stats/{k}_min"] = torch.min(v_cat).cpu().numpy()
+            logs[f"batch_stats/{k}_p95"] = torch.quantile(v_cat, 0.95).cpu().numpy()
+            logs[f"batch_stats/{k}_p5"] = torch.quantile(v_cat, 0.05).cpu().numpy()
+            logs[f"batch_stats/{k}_p50"] = torch.quantile(v_cat, 0.50).cpu().numpy()
+        
+        self.callback_handler.on_log(self.al_config, self.state, self.control, logs)
+
+        return next_batch_ids
+
+    
     def _undersample_dataset(self, dataset, ratio, seed):
         indices = list(range(len(dataset)))
         size = int(ratio * len(indices))
         indices = shuffle(indices, random_state=seed)
         indices = indices[:size]
-        return self.build_dataset(dataset.df.iloc[indices])
+        return self.build_dataset(dataset.get_df().iloc[indices])
 
     def _downsample_pool(self, df_train, new_size):
         indices = list(range(len(df_train)))
@@ -437,9 +664,9 @@ class ActiveLearningTrainer():
         return pd.DataFrame({"First": preferences_np, "Second": 1 - preferences_np, 'id': ids, 
                         'reward_chosen': rw_chosen_np, 'reward_rejected': rw_rejected_np})
 
-
-
 if __name__ == "__main__":
+    gc.enable()
+    # gc.set_debug(gc.DEBUG_LEAK)
     parser = HfArgumentParser(ActiveLearningArguments)
     script_args = parser.parse_args_into_dataclasses()[0]
 

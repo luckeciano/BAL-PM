@@ -428,12 +428,15 @@ class AdapterEnsembleRewardTrainer(RewardTrainer):
             }
         return loss
     
-    def compute_uncertainties(self, runs, mode, epoch, all_preds):
+    def compute_uncertainties(self, runs, mode, all_preds):
 
         ensemble_df = []
         for run in runs:
-             ensemble_df.append(all_preds[run.run_name][epoch][f'eval_{mode}'])
+             ensemble_df.append(all_preds[run.run_name][f'eval_{mode}'][['First', 'Second']].to_numpy())
+             ids = all_preds[run.run_name][f'eval_{mode}'][['id']]
         print(f"Number of ensemble predictions loaded: {len(ensemble_df)}")
         
-        return compute_uncertanties(ensemble_df)
+        uncertainties = compute_uncertanties(ensemble_df, ids)
+        del ensemble_df
+        return uncertainties
     

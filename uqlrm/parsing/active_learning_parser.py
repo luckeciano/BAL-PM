@@ -32,6 +32,15 @@ class ActiveLearningArguments:
     )
     epoch_steps: Optional[int] = field(default=60, metadata={"help": "number of active learning cycles."})
     gumbel_beta: Optional[float] = field(default=1.0, metadata={"help": "gumbel beta for stochastic batch acquisition functions"})
+    gumbel_beta_annealing: Optional[bool] = field(default=False, metadata={"help": "whether to linearly increase gumbel beta"})
+    gumbel_beta_annealing_epochs: Optional[int]  = field(default=15, metadata={"help": "number of active learning cycles."})
+    gumbel_beta_annealing_start_epoch: Optional[int]  = field(default=0, metadata={"help": "Epoch number to start annealing."})
+    state_ent_k: Optional[int] = field(default=30, metadata={"help": "k for kNN in state entropy estimation."})
+    state_ent_beta: Optional[float] = field(default=0.0005, metadata={"help": "weight factor for state entropy score"})
+    state_ent_d: Optional[float] = field(default=1, metadata={"help": "The dimension parameter for state entropy estimation."})
+    normalize_entropy: Optional[bool] = field(default=True, metadata={"help": "whether to normalize entropy"})
+    no_uncertainty: Optional[bool] = field(default=False, metadata={"help": "whether to ignore uncertainty estimates"})
+    normalize_state_features: Optional[bool] = field(default=False, metadata={"help": "whether to normalize state features"})
 
 
     # Model Arguments
@@ -69,7 +78,10 @@ class ActiveLearningArguments:
     log_batch_indices: Optional[bool] = field(default=False, metadata={"help": "whether to log the indices of each active batch"})
     batch_idx_filepath: Optional[str] = field(default=None, metadata={"help": "batch indices filepath"})
 
+    # State Features Dataset
+    state_features_dataset_name: Optional[str] = field(default=None, metadata={"help": "the state features dataset names"})
 
+    # Dataset
     dataset_name: Optional[str] = field(default="luckeciano/learning-to-summarize", metadata={"help": "the dataset names"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "Dataset text column name"})
     preprocess_fn: Optional[str] = field(default="redditcnn_preprocess_function", metadata={"help": "Which preprocess fn to apply"})
@@ -97,6 +109,7 @@ class ActiveLearningArguments:
     logging_strategy: Optional[str] = field(default="epoch", metadata={"help": "logging strategy"})
     save_strategy: Optional[str] = field(default="epoch", metadata={"help": "save strategy"})
     save_total_limit: Optional[int] = field(default=1, metadata={"help": "Max number of checkpoints per member."})
+    es_patience: Optional[int] = field(default=3, metadata={"help": "Max number of checkpoints per member."})
 
     per_device_train_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device train batch size"})
     per_device_eval_batch_size: Optional[int] = field(default=64, metadata={"help": "the per device eval batch size"})

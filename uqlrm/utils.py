@@ -5,6 +5,7 @@ import torch
 from accelerate import Accelerator
 from huggingface_hub import HfApi
 import time
+from sklearn.neighbors import NearestNeighbors
 
 
 def softmax(x, temperature=0.5):
@@ -94,3 +95,59 @@ def push_predictions_to_hub(output_filedir, predictions_dataset_hub):
             time.sleep(20) # Wait 20 seconds until next retry
             if i == 2:
                 print("Operation failed after maximum number of retries.")
+
+
+def find_kth_nearest_dists(points, k, device, batch_size=1024):
+    with torch.no_grad():
+        # Initialize an empty tensor to store the indices
+        indices = torch.empty(points.shape[0], dtype=torch.long).to(device)
+        final_dists = torch.empty(points.shape[0], dtype=torch.double).to(device)
+
+        # Compute pairwise distances and topk in batches
+        for i in range(0, points.shape[0], batch_size):
+            dists = torch.cdist(points[i:i+batch_size], points, compute_mode='donot_use_mm_for_euclid_dist')
+            topk_dists, batch_indices = torch.topk(dists, k, largest=False)
+            indices[i:i+batch_size] = batch_indices[:, k-1]
+            final_dists[i:i+batch_size] = topk_dists[:, k-1]
+
+    # Return the final dist
+    return final_dists
+
+def compute_batch_dists(pool_pts, batch_pts, device, batch_size=1024):
+    with torch.no_grad():
+        final_dists = torch.empty((pool_pts.shape[0], batch_pts.shape[0]), dtype=torch.float64).to(device)
+        for i in range(0, pool_pts.shape[0], batch_size):
+            dists = []
+            for j in range(0, batch_pts.shape[0], batch_size):
+                dists.append(torch.cdist(pool_pts[i:i+batch_size], batch_pts[j:j+batch_size], compute_mode='donot_use_mm_for_euclid_dist'))
+            dists = torch.cat(dists, dim=1)  # concatenate along the batch dimension
+            final_dists[i:i+batch_size] = dists
+    
+    return final_dists
+
+def compute_nbatch(dists, points, batch_pt, device, batch_size=1024):
+    with torch.no_grad():
+        ds = dists.view(-1, 1)
+        nbatches = torch.empty(points.shape[0], dtype=torch.long).to(device)
+        # TODO review this code
+        for i in range(0, points.shape[0], batch_size):
+            batch_dist = torch.cdist(points[i:i+batch_size], batch_pt, compute_mode='donot_use_mm_for_euclid_dist') # 1024, 320
+            n_batch = (batch_dist <= ds[i:i+batch_size]).double()  # 1024, 320
+            n_batch = torch.sum(n_batch, dim=1)
+            nbatches[i:i+batch_size] = n_batch
+    
+    return nbatches
+
+def compute_batch_knns(k, pool_pts, batch_pts, device, batch_size=1024):
+    with torch.no_grad():
+        final_dists = torch.empty(pool_pts.shape[0], dtype=torch.double).to(device)
+        for i in range(0, pool_pts.shape[0], batch_size):
+            dists = []
+            for j in range(0, batch_pts.shape[0], batch_size):
+                dists.append(torch.cdist(pool_pts[i:i+batch_size], batch_pts[j:j+batch_size], compute_mode='donot_use_mm_for_euclid_dist'))
+            dists = torch.cat(dists, dim=1)  # concatenate along the batch dimension
+            topk_dists, _ = torch.topk(dists, k, largest=False, dim=1)  # compute topk along the batch dimension
+            final_dists[i:i+batch_size] = topk_dists[:, k-1]
+    
+    return final_dists
+    

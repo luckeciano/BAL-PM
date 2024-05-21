@@ -1,11 +1,13 @@
 from datasets import load_dataset, Dataset
 from dataset_utils import dataset_process_factory
+import numpy as np
+import pandas as pd
 
 def process_and_filter_dataset(script_args, dataset, tokenizer):
     final_dataset = dataset.map(lambda example:
         getattr(dataset_process_factory, script_args.preprocess_fn)(example, tokenizer, script_args.seq_length),
         batched=True,
-        num_proc=4,
+        # num_proc=4,
     )
     final_dataset = final_dataset.filter(
         lambda x: len(x["input_ids_chosen"]) <= script_args.seq_length
@@ -52,6 +54,9 @@ def create_single_dataset(args, dataset_name, tokenizer=None):
 
     return train_dataset, valid_dataset, test_dataset, ood_dataset
 
+def create_features_dataset(dataset_name):
+    return load_dataset(dataset_name)['train'].to_pandas()
+
 def undersample_dataset(dataset, ratio, seed):
     dataset = dataset.train_test_split(test_size=ratio, seed=seed)
     return dataset["test"]
@@ -72,11 +77,25 @@ class DataFrameDataset(Dataset):
         shuffled_df = self.df.sample(frac=1).reset_index(drop=True)
         self.df = shuffled_df
     
+    def get_df(self):
+        return self.df
+    
+    def extend(self, new_batch_df):
+        # Check if all columns in self.df.columns are also present in new_batch_df
+        if not set(self.df.columns).issubset(new_batch_df.columns):
+            # If not, raise an error
+            raise ValueError("new_batch_df must have at least all the columns in the DataFrameDataset")
+
+        # Rearrange the columns of new_batch_df to match those in the DataFrameDataset
+        new_batch_df = new_batch_df[self.df.columns]
+
+        # Concatenate new_batch_df with the existing DataFrame
+        self.df = pd.concat([self.df, new_batch_df], ignore_index=True)
+    
 class NumPyDataset(Dataset):
     def __init__(self, df):
-        self.df = df
-        self.values = df.values
-        self.x = 0
+        self.values = df.to_numpy()
+        self.columns = df.columns
 
     def __len__(self):
         return len(self.values)
@@ -90,6 +109,20 @@ class NumPyDataset(Dataset):
         return batch
     
     def shuffle(self):
-        shuffled_df = self.df.sample(frac=1).reset_index(drop=True)
-        self.values = shuffled_df.values
-        self.df = shuffled_df
+        np.random.shuffle(self.values)
+    
+    def get_df(self):
+        return pd.DataFrame(self.values, columns=self.columns)
+    
+    def extend(self, new_batch_df):
+        # Check if all columns in self.columns are also present in new_batch_df
+        if not set(self.columns).issubset(new_batch_df.columns):
+            # If not, raise an error
+            raise ValueError("new_batch_df must have at least all the columns in the NumPyDataset")
+
+        # Rearrange the columns of new_batch_df to match those in the NumPyDataset
+        new_batch_df = new_batch_df[self.columns]
+
+        # Convert new_batch_df to a NumPy array and concatenate it with the existing values
+        new_values = new_batch_df.to_numpy()
+        self.values = np.concatenate((self.values, new_values), axis=0)

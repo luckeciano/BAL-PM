@@ -91,10 +91,10 @@ class MCDropoutRewardTrainer(AdapterEnsembleRewardTrainer):
             return loss, all_preferences
         return loss
     
-    def compute_uncertainties(self, runs, mode, epoch, all_preds):
+    def compute_uncertainties(self, runs, mode, all_preds):
         assert len(runs) == 1, "Only one model is required for MC Dropout"
         run = runs[0]
 
-        realizations_dfs = all_preds[run.run_name][epoch][f'eval_{mode}']
+        realizations_dfs = all_preds[run.run_name][f'eval_{mode}']
         
         return compute_uncertanties(realizations_dfs)

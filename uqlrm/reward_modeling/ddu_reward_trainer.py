@@ -55,22 +55,22 @@ class DDURewardTrainer(AdapterEnsembleRewardTrainer):
             super().__init__(model, args, data_collator, train_dataset, eval_dataset, tokenizer, model_init, \
                          compute_metrics, callbacks, optimizers, preprocess_logits_for_metrics, max_length, peft_config)
 
-    def compute_uncertainties(self, runs, mode, epoch, all_preds):
+    def compute_uncertainties(self, runs, mode, all_preds):
 
         assert len(runs) == 1, "Only one model is required for DDU"
         run = runs[0]
 
-        rewards_chosen = all_preds[run.run_name][epoch][f'eval_buffer']['reward_chosen']
-        rewards_rejected = all_preds[run.run_name][epoch][f'eval_buffer']['reward_rejected']  
+        rewards_chosen = all_preds[run.run_name][f'eval_buffer']['reward_chosen']
+        rewards_rejected = all_preds[run.run_name][f'eval_buffer']['reward_rejected']  
 
         chosen_gd = norm(loc=rewards_chosen.mean(), scale=rewards_chosen.std())
         rejected_gd = norm(loc=rewards_rejected.mean(), scale=rewards_rejected.std())
 
-        train_rw_chosen = all_preds[run.run_name][epoch][f'eval_{mode}']['reward_chosen']
-        train_rw_rejected = all_preds[run.run_name][epoch][f'eval_{mode}']['reward_rejected']
-        prob_chosen = all_preds[run.run_name][epoch][f'eval_{mode}']['First']
-        prob_rejected = all_preds[run.run_name][epoch][f'eval_{mode}']['Second']
-        ids = all_preds[run.run_name][epoch][f'eval_{mode}']['id']
+        train_rw_chosen = all_preds[run.run_name][f'eval_{mode}']['reward_chosen']
+        train_rw_rejected = all_preds[run.run_name][f'eval_{mode}']['reward_rejected']
+        prob_chosen = all_preds[run.run_name][f'eval_{mode}']['First']
+        prob_rejected = all_preds[run.run_name][f'eval_{mode}']['Second']
+        ids = all_preds[run.run_name][f'eval_{mode}']['id']
 
         chosen_density = chosen_gd.cdf(train_rw_chosen)
         rejected_density = rejected_gd.cdf(train_rw_rejected)

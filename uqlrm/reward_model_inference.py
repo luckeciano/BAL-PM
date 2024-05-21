@@ -64,28 +64,19 @@ model, tokenizer, peft_config = build_reward_model(script_args)
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
 train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, tokenizer)
 
-if script_args.undersample_eval:
-    undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio, seed=script_args.seed)
-    undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio, seed=script_args.seed)
-    undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio, seed=script_args.seed)
-    undersampled_ood = undersample_dataset(ood_dataset, script_args.undersample_ratio, seed=script_args.seed)
-    eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": undersampled_ood}
-else:
-    eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
+# if script_args.undersample_eval:
+#     undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio, seed=script_args.seed)
+#     undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio, seed=script_args.seed)
+#     undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio, seed=script_args.seed)
+#     undersampled_ood = undersample_dataset(ood_dataset, script_args.undersample_ratio, seed=script_args.seed)
+#     eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": undersampled_ood}
+# else:
+#     eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
 
 # if script_args.undersample_eval:
 #     eval_sets = {"train": undersampled_train, "ood": ood_dataset}
 
-undersampled_train = undersample_dataset(train_dataset, ratio=0.03, seed=script_args.seed)
-
-final_shuffled_test_dataset = undersampled_train.map(lambda example:
-    dataset_process_factory.shuffle_tokens(example, tokenizer, reward_config.max_length),
-    batched=True,
-    num_proc=4,
-)
-
-eval_sets['shuffled'] = final_shuffled_test_dataset
-    
+eval_sets = {"train": train_dataset}
 
 # Define Reward Collator with Indices:
 reward_collator = RewardDataCollatorWithPaddingAndIndices(tokenizer, max_length=reward_config.max_length)
@@ -93,54 +84,16 @@ reward_collator = RewardDataCollatorWithPaddingAndIndices(tokenizer, max_length=
 # Define the Trainer
 trainer = RewardInferencer(
     model=model,
-    tokenizer=tokenizer,
     data_collator=reward_collator,
-    args=reward_config,
-    train_dataset=train_dataset,
-    eval_dataset=eval_sets,
-    peft_config=peft_config,
+    args=reward_config
     #bf16=True
 )
 
 all_features = []
 all_metadata = []
 
-#TODO: Organize this inference code
-for eval_dataset_name, eval_dataset in trainer.eval_dataset.items():
-    loss, features = trainer.inference(eval_dataset, return_features=True)
 
-    fts = np.concatenate((features['features_chosen'], features['features_rejected']), axis=1)
-    ft_df = pd.DataFrame(fts).round(6)
-    ft_df['id'] = features['id']
-    ft_df = ft_df[['id'] + [col for col in ft_df.columns if col != 'id']]
-    ft_df.to_csv(f'features_{eval_dataset_name}_{script_args.run_name}.csv', index=False, header=True)
-    
-    all_features.extend(features['features_chosen'])
-    all_metadata.extend([['chosen', f'{features["rewards_chosen"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_chosen"]))])
-    
-    all_features.extend(features['features_rejected'])
-    all_metadata.extend([['rejected', f'{features["rewards_rejected"][i][0]}', f'{script_args.run_name}', f'{eval_dataset_name}', f'{features["id"][i]}'] for i in range(len(features["features_rejected"]))])
-
-
-all_ft_df = pd.DataFrame(all_features).round(4)
-all_metadata_df = pd.DataFrame(all_metadata)
-
-all_ft_df.to_csv(f'all_features_{script_args.run_name}.tsv', sep='\t', index=False, header=False)
-all_metadata_df.to_csv(f'metadata_{script_args.run_name}.tsv', sep='\t', index=False, header=['Preference', 'RewardScore', 'Model', 'Dataset', 'id'])
-
-    
-    
-
-# Upload Predictions to Hub
-if script_args.push_predictions_to_hub:
-    eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
-
-    for eval_dataset_name, eval_dataset in eval_sets.items():
-        dataset_metrics = trainer.evaluate(
-            eval_dataset=eval_dataset,
-            metric_key_prefix=f"eval_{eval_dataset_name}",
-        )
-
-    full_dir = os.path.join(script_args.output_dir, "predictions")
-    push_predictions_to_hub(full_dir, script_args.predictions_dataset_hub)
-    print("done")
+for eval_dataset_name, eval_dataset in eval_sets.items():
+    loss, features = trainer.inference(eval_dataset, return_features=True, \
+                                       filepath_fts=f'features_{eval_dataset_name}_{script_args.run_name}.csv', \
+                                        filepath_chosen=f'fts_chosen_{eval_dataset_name}_{script_args.run_name}.csv')
