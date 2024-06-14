@@ -51,7 +51,7 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --per_device_train_batch_size 64 \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \
---heuristic "Epistemic Uncertainty" \
+--heuristic "random" \
 --selection_strategy "sample-then-rank" \
 --evaluation_strategy "steps" \
 --save_strategy "steps" \
@@ -60,7 +60,7 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --ignore_data_skip "True" \
 --pool_size 92000 \
 --downsample_pool "True" \
---seed 18 \
+--seed 88 \
 --score_init_std 0.02 \
 --learning_rate 1.41e-4 \
 --bf16 True \

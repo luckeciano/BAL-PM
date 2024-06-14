@@ -49,11 +49,11 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \
 --heuristic "llm_uncertainty" \
---llm_unc_type "avg_entropy" \
+--llm_unc_type "max_entropy" \
 --selection_strategy "clustered_rank" \
 --gumbel_beta "8.0" \
 --pool_size 92000 \
---seed 1491 \
+--seed 382 \
 --score_init_std 0.02 \
 --learning_rate 3e-5 \
 --bf16 False \

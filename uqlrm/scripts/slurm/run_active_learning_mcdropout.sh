@@ -51,7 +51,7 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --selection_strategy "clustered_rank" \
 --gumbel_beta "8.0" \
 --pool_size 92000 \
---seed 66 \
+--seed 1491 \
 --score_init_std 0.02 \
 --learning_rate 3e-5 \
 --bf16 False \
@@ -68,5 +68,5 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --eval_steps 100 \
 --save_steps 100 \
 --regularization_loss "False" \
---mc_dropout_rate 0.75 \
---mc_dropout_realizations 30
+--mc_dropout_rate 0.1 \
+--mc_dropout_realizations 5

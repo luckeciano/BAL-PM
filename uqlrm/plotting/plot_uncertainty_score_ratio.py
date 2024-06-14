@@ -63,7 +63,7 @@ root_path = '/users/lucelo/UQLRM/uqlrm/plotting/data/uncertainty_score_ratio'
 metric = 'uncertainty_score_ratio_max'
 exp_name = 'baepm_reddit_7b_ratiolog_final'
 legend_dict = {
-    'baepm_reddit_7b_ratiolog_final': 'Epistemic Uncertainty'
+    'baepm_reddit_7b_ratiolog_final': '$\hat{U}(x, y_{1}, y_{2})$'
 }
 metric_name = f'train/batch_stats/{metric}'
 
@@ -74,7 +74,7 @@ concat_data = get_data(root_path, exp_name, '')
 compl_data = 1.0 - concat_data
 
 plot_with_ci(concat_data, ax, legend_dict[exp_name])
-plot_with_ci(compl_data, ax, 'Prompt Entropy')
+plot_with_ci(compl_data, ax, '$\hat{\mathcal{H}}({X_{tr} \cup \{x\}})$')
 # plot_stacked(concat_data, compl_data, ax_stack, legend_dict[exp_name], 'Prompt Entropy')
 
 # Add labels and title

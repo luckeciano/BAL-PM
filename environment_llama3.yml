@@ -1,0 +1,17 @@
+name: uqrm-llama3
+channels:
+  - conda-forge
+  - defaults
+  - pytorch
+  - conda
+dependencies:
+  - python=3.9
+  - pip=23.3
+  - pip:  
+    - tqdm==4.66.1 
+    - scipy==1.11.3
+    - scikit-learn==1.3.2
+    - wandb==0.15.12
+    - jupyter
+    - sentencepiece==0.1.99
+
