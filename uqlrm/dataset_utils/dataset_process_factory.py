@@ -118,26 +118,12 @@ def reddit_post_preprocess_fn(examples, tokenizer, max_len):
     }
     for post, chosen, rejected, id in zip(examples['post'], examples["chosen_summary"], examples["rejected_summary"], examples["id"]):
         final_post = f"Post: {post}"
-        tokenized_chosen = tokenizer(final_post)
-        tokenized_rejected = tokenizer(final_post)
-
-        tokens_left = max_len - max(len(tokenized_chosen['input_ids']), len(tokenized_rejected['input_ids']))
         tokenized_post = tokenizer(final_post)
-        tokenized_post['input_ids'] = tokenized_post['input_ids'][:(tokens_left // 2)]
-        tokenized_post['attention_mask'] = tokenized_post['attention_mask'][:(tokens_left // 2)]
 
-        final_tok_chosen = {}
-        final_tok_chosen['input_ids'] = tokenized_post['input_ids'] + tokenized_chosen['input_ids']
-        final_tok_chosen['attention_mask'] = tokenized_post['attention_mask'] + tokenized_chosen['attention_mask']
-
-        final_tok_rejected = {}
-        final_tok_rejected['input_ids'] = tokenized_post['input_ids'] + tokenized_rejected['input_ids']
-        final_tok_rejected['attention_mask'] = tokenized_post['attention_mask'] + tokenized_rejected['attention_mask']
-
-        new_examples["input_ids_chosen"].append(final_tok_chosen["input_ids"])
-        new_examples["attention_mask_chosen"].append(final_tok_chosen["attention_mask"])
-        new_examples["input_ids_rejected"].append(final_tok_rejected["input_ids"])
-        new_examples["attention_mask_rejected"].append(final_tok_rejected["attention_mask"])
+        new_examples["input_ids_chosen"].append(tokenized_post["input_ids"])
+        new_examples["attention_mask_chosen"].append(tokenized_post["attention_mask"])
+        new_examples["input_ids_rejected"].append(tokenized_post["input_ids"])
+        new_examples["attention_mask_rejected"].append(tokenized_post["attention_mask"])
         new_examples["id"].append(id)
 
     return new_examples
