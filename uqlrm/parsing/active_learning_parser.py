@@ -41,6 +41,7 @@ class ActiveLearningArguments:
     normalize_entropy: Optional[bool] = field(default=True, metadata={"help": "whether to normalize entropy"})
     no_uncertainty: Optional[bool] = field(default=False, metadata={"help": "whether to ignore uncertainty estimates"})
     normalize_state_features: Optional[bool] = field(default=False, metadata={"help": "whether to normalize state features"})
+    entropy_minimizer_baseline: Optional[bool] = field(default=False, metadata={"help": "whether to minimize entropy instead of maximizing it (baseline)"})
 
 
     # Model Arguments
@@ -68,6 +69,7 @@ class ActiveLearningArguments:
     llm_unc_filepath: Optional[str] = field(
         default=None, metadata={"help": "The filepath for llm uncertainties."}
     )
+    llm_unc_low_perplexity_policy: Optional[bool] = field(default=False, metadata={"help": "choose triples with low perplexity"})
 
     # Collator/Trainer/Dataset Type
     collator_type: Optional[str] = field(default='frozen_backbone_collator', metadata={"help": "collator type"})

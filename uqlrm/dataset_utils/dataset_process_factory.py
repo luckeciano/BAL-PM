@@ -4,6 +4,7 @@ from sklearn.utils import shuffle
 from typing import Literal
 import json
 import ast
+import re
 
 
 def process_reddit_sft(example, tokenizer, seq_len):
@@ -244,6 +245,38 @@ def hh_preprocess_function(examples, tokenizer, max_len):
         new_examples["id"].append(id)
 
     return new_examples
+
+
+def hh_prompt_preprocess_function(examples, tokenizer, max_len):
+    new_examples = {
+        "input_ids_chosen": [],
+        "attention_mask_chosen": [],
+        "input_ids_rejected": [],
+        "attention_mask_rejected": [],
+        "id": []
+    }
+
+    for chosen, rejected, id in zip(examples["chosen"], examples["rejected"], examples["id"]):
+        prompt = hh_extract_prompt(chosen)
+        tokenized_chosen = tokenizer(prompt)
+        tokenized_rejected = tokenizer(prompt)
+        new_examples["input_ids_chosen"].append(tokenized_chosen["input_ids"])
+        new_examples["attention_mask_chosen"].append(tokenized_chosen["attention_mask"])
+        new_examples["input_ids_rejected"].append(tokenized_rejected["input_ids"])
+        new_examples["attention_mask_rejected"].append(tokenized_rejected["attention_mask"])
+        new_examples["id"].append(id)
+
+    return new_examples
+
+
+def hh_extract_prompt(row):
+    pattern = r'\n\nHuman:([\s\S]*?)\n\nAssistant:'
+    matches = re.findall(pattern, row)
+    first_text = matches[0] if matches else None
+    if first_text is not None:
+        # Remove "Human: " and " Assistant:"
+        first_text = first_text.replace('Human: ', '').replace(' Assistant:', '')
+    return first_text[1:]
 
 
 def apply_chat_template(

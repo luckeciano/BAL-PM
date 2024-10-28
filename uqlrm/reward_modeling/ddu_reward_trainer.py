@@ -78,8 +78,8 @@ class DDURewardTrainer(AdapterEnsembleRewardTrainer):
         chosen_alpha = np.where(chosen_density < 0.5, chosen_density, 1 - chosen_density)
         rejected_alpha = np.where(rejected_density < 0.5, rejected_density, 1 - rejected_density)
 
-        # uncertainty = - (chosen_alpha + rejected_alpha) # "Averaging" alphas and flipping sign for descendence order
-        uncertainty = - np.minimum(chosen_alpha, rejected_alpha)
+        uncertainty = - (chosen_alpha + rejected_alpha) # "Averaging" alphas and flipping sign for descendence order
+        # uncertainty = - np.minimum(chosen_alpha, rejected_alpha)
 
         df = pd.DataFrame({'Epistemic Uncertainty': uncertainty, 'Predictive Uncertainty': np.zeros(len(uncertainty)), 
                         'Aleatoric Uncertainty': np.zeros(len(uncertainty)), 'First': prob_chosen, 'Second': prob_rejected,

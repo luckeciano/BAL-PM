@@ -32,6 +32,7 @@ for i in "${seeds[@]}"; do
     python ~/UQLRM/uqlrm/active_learning.py \
     --output_dir /scratch-ssd/lucelo/active_learning/results/$1 \
     --model_type "adapters_ens" \
+    --trainer_type "ddu_trainer" \
     --run_name "$1_$i" \
     --dataset_name "luckeciano/reddit-features-hermes" \
     --input_size 4096 \
@@ -46,14 +47,14 @@ for i in "${seeds[@]}"; do
     --undersample_val_ratio 1.0  \
     --undersample_infer_ratio 1.0 \
     --initial_sample_size 320 \
-    --ensemble_size 5 \
+    --ensemble_size 1 \
     --active_batch_size 320 \
     --epoch_steps 75 \
     --per_device_train_batch_size 32 \
     --save_predictions_steps 1 \
     --gradient_accumulation_steps 1 \
     --heuristic "Epistemic Uncertainty" \
-    --selection_strategy "batch-state-entropy" \
+    --selection_strategy "rank" \
     --normalize_state_features "True" \
     --normalize_entropy "False" \
     --no_uncertainty "False" \

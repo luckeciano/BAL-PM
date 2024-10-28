@@ -4,7 +4,6 @@
 #SBATCH --job-name="active_learning"
 #SBATCH --output=/users/lucelo/logs/slurm-%j.out
 #SBATCH --error=/users/lucelo/logs/slurm-%j.err
-#SBATCH --account=lucelo
 
 export CONDA_ENVS_PATH=/scratch-ssd/$USER/conda_envs
 export CONDA_PKGS_DIRS=/scratch-ssd/$USER/conda_pkgs
@@ -29,8 +28,8 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --output_dir /scratch-ssd/lucelo/active_learning/results/$1 \
 --model_type "adapters_ens" \
 --run_name "$1" \
---dataset_name "luckeciano/reddit-features-hermes" \
---input_size 4096 \
+--dataset_name "luckeciano/mistral8x22b-features-reddit" \
+--input_size 6144 \
 --dataset_type "numpy" \
 --clusters_filepath "/users/lucelo/UQLRM/uqlrm/data/groups_reddit.txt" \
 --per_device_eval_batch_size 1024 \
@@ -41,26 +40,23 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --undersample_eval False \
 --undersample_val_ratio 1.0  \
 --undersample_infer_ratio 1.0 \
---initial_sample_size 320 \
+--initial_sample_size 92000 \
 --ensemble_size 5 \
 --active_batch_size 320 \
---epoch_steps 75 \
+--epoch_steps 1 \
+--es_patience 10 \
 --per_device_train_batch_size 32 \
 --save_predictions_steps 1 \
 --gradient_accumulation_steps 1 \
 --heuristic "Epistemic Uncertainty" \
---selection_strategy "batch-state-entropy" \
---normalize_state_features "True" \
---normalize_entropy "False" \
---no_uncertainty "False" \
+--selection_strategy "clustered-rank" \
 --state_features_dataset_name "luckeciano/hermes-reddit-post-features" \
---state_ent_beta "1e-2" \
---state_ent_k "13" \
+--state_ent_beta "1e-3" \
+--state_ent_k "91" \
 --gumbel_beta "8.0" \
 --gumbel_beta_annealing "True" \
---gumbel_beta_annealing_epochs "50" \
---pool_size 92000 \
---seed 712 \
+--pool_size 92320 \
+--seed 62 \
 --score_init_std 0.02 \
 --learning_rate 3e-5 \
 --bf16 False \
@@ -78,5 +74,5 @@ python ~/UQLRM/uqlrm/active_learning.py \
 --save_steps 100 \
 --regularization_loss "False" \
 --lambda_regularizer "1.0" \
---log_batch_indices "True" \
---batch_idx_filepath "/users/lucelo/UQLRM/uqlrm/data/batch_ids_$1.csv" \
+# --log_batch_indices "True" \
+# --batch_idx_filepath "/users/lucelo/UQLRM/uqlrm/data/batch_ids_ep_clustered_rank_adp_hermes.csv" \

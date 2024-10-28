@@ -64,18 +64,6 @@ model, tokenizer, peft_config = build_reward_model(script_args)
 # Preprocess the dataset and filter out examples that are longer than script_args.max_length
 train_dataset, eval_dataset, test_dataset, ood_dataset = create_datasets(script_args, tokenizer)
 
-# if script_args.undersample_eval:
-#     undersampled_train = undersample_dataset(train_dataset, script_args.undersample_ratio, seed=script_args.seed)
-#     undersampled_eval = undersample_dataset(eval_dataset, script_args.undersample_ratio, seed=script_args.seed)
-#     undersampled_test = undersample_dataset(test_dataset, script_args.undersample_ratio, seed=script_args.seed)
-#     undersampled_ood = undersample_dataset(ood_dataset, script_args.undersample_ratio, seed=script_args.seed)
-#     eval_sets = {"train": undersampled_train, "eval": undersampled_eval, "test": undersampled_test, "ood": undersampled_ood}
-# else:
-#     eval_sets = {"train": train_dataset, "eval": eval_dataset, "test": test_dataset, "ood": ood_dataset}
-
-# if script_args.undersample_eval:
-#     eval_sets = {"train": undersampled_train, "ood": ood_dataset}
-
 eval_sets = {"train": train_dataset}
 
 # Define Reward Collator with Indices:

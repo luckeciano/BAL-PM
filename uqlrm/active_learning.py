@@ -343,6 +343,11 @@ class ActiveLearningTrainer():
             if self.script_args.heuristic == "llm_uncertainty":
                 ids_df = ids.to_frame()
                 unc_df = self.llm_uncertainties[['id', self.script_args.llm_unc_type]]
+
+                if self.script_args.llm_unc_low_perplexity_policy:
+                    # Select points with low perplexity, instead of high perplexity
+                    unc_df[self.script_args.llm_unc_type] = -unc_df[self.script_args.llm_unc_type]
+                    
                 acquisition_fn[script_args.heuristic] = ids_df.merge(unc_df, on='id', how='inner')[self.script_args.llm_unc_type].rename(script_args.heuristic)
                 #TODO Add id column as index and return only heuristic
         
@@ -421,7 +426,12 @@ class ActiveLearningTrainer():
                         pool['state_entropy'] = (pool['state_entropy'] - pool['state_entropy'].mean()) / pool['state_entropy'].std()
                     
                     pool['entropy_score'] = self.script_args.state_ent_beta * pool['state_entropy']
-                    pool['final_score'] = pool[heuristic] + pool['entropy_score']
+
+                    if self.script_args.entropy_minimizer_baseline:
+                        pool['final_score'] = pool[heuristic] - pool['entropy_score']
+                    else:
+                        pool['final_score'] = pool[heuristic] + pool['entropy_score']
+                    
                     pool['uncertainty_score_ratio'] = pool[heuristic] / pool['final_score']
                     
                     max_score_index = torch.argmax(pool['final_score'])

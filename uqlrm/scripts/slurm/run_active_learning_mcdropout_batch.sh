@@ -31,7 +31,8 @@ seeds=(9 17 23 54 71)
 for i in "${seeds[@]}"; do
     python ~/UQLRM/uqlrm/active_learning.py \
     --output_dir /scratch-ssd/lucelo/active_learning/results/$1 \
-    --model_type "adapters_ens" \
+    --model_type "mc_dropout" \
+    --trainer_type "mc_dropout_trainer" \
     --run_name "$1_$i" \
     --dataset_name "luckeciano/reddit-features-hermes" \
     --input_size 4096 \
@@ -46,7 +47,7 @@ for i in "${seeds[@]}"; do
     --undersample_val_ratio 1.0  \
     --undersample_infer_ratio 1.0 \
     --initial_sample_size 320 \
-    --ensemble_size 5 \
+    --ensemble_size 1 \
     --active_batch_size 320 \
     --epoch_steps 75 \
     --per_device_train_batch_size 32 \
@@ -84,6 +85,8 @@ for i in "${seeds[@]}"; do
     --regularization_loss "False" \
     --lambda_regularizer "1.0" \
     --log_batch_indices "True" \
+    --mc_dropout_rate 0.1 \
+    --mc_dropout_realizations 5 \
     --batch_idx_filepath "/users/lucelo/UQLRM/uqlrm/data/batch_ids_$1_$i.csv" &
 done
 
